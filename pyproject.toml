@@ -1,8 +1,18 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "xrz-trading-bot"
-version = "1.0.0"
-description = "XRZ Trading Bot – lokaler KI-Trading-Assistent mit Paper- und Live-Trading, Telegram und TradingView"
+name = "xrz-vincent"
+version = "2.0.0"
+description = "XRZ Vincent – lokaler KI-Trading-Assistent für macOS (Backend)"
 requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+include = ["xrz*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.md", "*.json", "*.onnx", "*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -5,7 +5,6 @@ import sys
 
 import pytest
 
-from xrz.ai.knowledge import KnowledgeBase, chunk_text, html_to_text
 from xrz.ai.llm import ToolSpec, _run_tool, clean_text, extract_json
 from xrz.config import ConfigManager, set_path
 from xrz.interfaces.telegram_bot import _chunks
@@ -65,29 +64,6 @@ async def test_tool_runner_handles_errors():
     assert err
 
 
-def test_chunking():
-    text = "\n\n".join(f"Absatz {i} " + "x" * 300 for i in range(10))
-    chunks = chunk_text(text, size=900)
-    assert len(chunks) > 1 and all(len(c) <= 900 for c in chunks)
-    assert html_to_text("<p>Hallo<script>evil()</script> <b>Welt</b></p>") == "Hallo Welt"
-    parts = _chunks("a\n" * 5000, 3900)
-    assert all(len(p) <= 3900 for p in parts) and "".join(parts).count("a") == 5000
-
-
-async def test_knowledge_search(tmp_path):
-    st = Storage(tmp_path / "k.db")
-    kb = KnowledgeBase(st)
-    n = await kb.seed_if_empty()
-    assert n > 10
-    await kb.add("Bei Bitcoin am Wochenende keine Ausbrüche handeln, die Liquidität ist zu gering.", topic="notiz")
-    hits = await kb.search("Bitcoin Wochenende Ausbruch", 3)
-    assert hits and "Wochenende" in hits[0]["text"]
-    hits = await kb.search("Stop-Loss ATR Position", 3)
-    assert hits
-    assert kb.delete(hits[0]["id"])
-    st.close()
-
-
 def test_storage_trades_and_stats(tmp_path):
     from xrz.storage import Trade
 
@@ -101,3 +77,38 @@ def test_storage_trades_and_stats(tmp_path):
     st.kv_set("x", {"a": [1, 2]})
     assert st.kv_get("x") == {"a": [1, 2]}
     st.close()
+
+
+def test_telegram_chunking():
+    parts = _chunks("a\n" * 5000, 3900)
+    assert all(len(p) <= 3900 for p in parts) and "".join(parts).count("a") == 5000
+
+
+def test_event_bus_threadsafe_emit():
+    import asyncio
+    import threading
+
+    from xrz.events import EventBus
+
+    async def main():
+        bus = EventBus()
+        bus.bind_loop(asyncio.get_running_loop())
+        got = []
+
+        async def handler(t, d):
+            got.append((t, d))
+
+        bus.subscribe(handler)
+        th = threading.Thread(target=lambda: bus.emit("voice.level", {"level": 0.5}))
+        th.start()
+        th.join()
+        bus.emit("chat", {"text": "hi"})
+        await bus.notify("trade", "Kauf", {"x": 1})
+        for _ in range(20):
+            if len(got) >= 3:
+                break
+            await asyncio.sleep(0.01)
+        types = [t for t, _ in got]
+        assert "voice.level" in types and "chat" in types and "notify" in types
+
+    asyncio.run(main())

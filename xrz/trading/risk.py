@@ -76,8 +76,8 @@ class RiskManager:
             return RiskDecision(False, "Trading ist ausgeschaltet")
         if equity <= 0 or price <= 0:
             return RiskDecision(False, "Kein Kapital / kein Preis")
-        if direction < 0 and (live or not self.s.trading.allow_short):
-            return RiskDecision(False, "Short nicht erlaubt (live: nur Spot-Long; Paper: in Einstellungen aktivierbar)")
+        if direction < 0 and not self.s.trading.allow_short:
+            return RiskDecision(False, "Short-Trades sind ausgeschaltet (Einstellungen → Trading → Shorts erlauben)")
         mode_trades = [t for t in open_trades if t.mode == mode]
         if any(t.symbol == symbol for t in mode_trades):
             return RiskDecision(False, f"Es gibt bereits eine offene Position in {symbol}")

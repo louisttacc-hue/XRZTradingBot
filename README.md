@@ -1,238 +1,141 @@
-# XRZ Trading Bot 🤖📈
+# XRZ Vincent 🟣
 
-Ein lokaler KI-Trading-Assistent für den Mac. Er analysiert Märkte mit 7 Strategien,
-testet sie laufend per Walk-Forward-Backtest, handelt auf Zuruf im **Paper-Trading** (Spielgeld)
-oder **Live** (Echtgeld), lässt sich komplett per **Telegram** steuern, öffnet **TradingView**
-auf deinem Mac und **lernt mit jedem Trade und allem, was du ihm beibringst**, dazu.
+**Vincent** ist eine kleine KI, die als animierte Figur am Rand deines MacBook-Bildschirms lebt.
+Du sprichst einfach mit ihr – **„Hey Vincent, wie sieht Bitcoin aus?“** – und sie antwortet mit
+realistischer Stimme. Vincent analysiert den Markt mit über 35 Strategien, merkt sich alles, was du
+ihm erzählst, wird mit jedem Gespräch und jedem Trade schlauer und **bedient für dich die
+TradingView-App**: Paper Trading im TradingView-Paper-Konto oder – nur nach ausdrücklicher
+Freigabe – mit Echtgeld über deinen in TradingView verbundenen Broker.
 
-> ⚠️ **Ehrlich vorweg:** Kein Bot und keine KI kann „immer sicheres Geld“ verdienen. Wer das
-> verspricht, lügt. Dieser Bot ist auf **Risikokontrolle** gebaut: Er handelt nur Märkte, in denen
-> seine Strategien im Backtest einen Vorteil gezeigt haben, begrenzt jeden Verlust per Stop-Loss
-> und hat mehrere Notbremsen. Verluste sind trotzdem möglich. **Erst wochenlang Paper-Trading,
-> dann live mit kleinen Beträgen.**
+> ⚠️ **Ehrlich vorweg:** Keine KI kann „immer sicheres Geld“ verdienen. Vincent ist auf
+> **Risikokontrolle** gebaut: Er handelt nur nach deinem „Ja“, prüft vor jedem Klick, ob in TradingView
+> wirklich das richtige Konto (Paper oder Echtgeld) aktiv ist, setzt Stop-Loss und Take-Profit direkt
+> im Order-Ticket und hat mehrere Notbremsen. Verluste sind trotzdem möglich. **Erst wochenlang Paper
+> Trading, dann – wenn überhaupt – klein mit Echtgeld.**
 
 ---
 
-## Was der Bot kann
+## Was Vincent kann
 
-| Bereich | Funktionen |
+| | |
 |---|---|
-| 📊 **Analyse** | 20+ Indikatoren (RSI, MACD, ATR, ADX, Bollinger, Supertrend, Stochastik, VWAP, OBV …), Marktphasen-Erkennung, Unterstützungen/Widerstände, übergeordneter Trend, Fear-&-Greed-Index, News-Schlagzeilen |
-| 🧠 **Strategien** | 7 Strategien (EMA-Trend, MACD-Momentum, RSI-Mean-Reversion, Bollinger-Squeeze, Donchian/Turtle, Supertrend, Trend-Pullback) → gewichteter Ensemble-Score |
-| 🧪 **Backtests** | Walk-Forward-Optimierung (Parameter auf alten Daten wählen, auf neuen prüfen) mit Gebühren, Slippage, Stop-Loss, Take-Profit und Trailing-Stop – keine Zukunftsdaten |
-| 💼 **Trading** | Paper-Trading mit echten Kursen · Live-Trading über 100+ Börsen (ccxt: Binance, Kraken, Bybit, OKX, Coinbase …) · Aktien/ETFs/Forex als Daten über yfinance |
-| 🛡 **Risiko** | Positionsgröße nach Risiko, ATR-Stops, Break-Even, Trailing-Stop, Tagesverlust-Limit, Drawdown-Notbremse, Abkühlphase nach Verlust, Max.-Betrag pro Live-Order, Stops zusätzlich an der Börse |
-| 🤖 **KI** | Lokal & kostenlos über **Ollama** (z. B. Qwen3) · optional **Claude** (Anthropic) oder **OpenAI** per API-Key für deutlich mehr Intelligenz · automatisches Ausweichen auf die lokale KI |
-| 📚 **Lernen** | Wissensdatenbank mit Grundwissen · `/lerne` · Dokumente (PDF/TXT) und Webseiten einlesen · nach jedem Trade eine Lektion · Strategien werden nach echten Ergebnissen höher/niedriger gewichtet |
-| 💬 **Telegram** | Alle Befehle auf Deutsch, freier Chat („Wie sieht Bitcoin aus?“, „Starte Paper-Trading“), Trade-Meldungen, Tagesbericht, Fotos von Charts analysieren |
-| 🖥 **Mac** | Dashboard im Browser, TradingView öffnen (Browser oder App), Screenshots + KI-Chartanalyse, Mitteilungen, Sprachausgabe, Autostart |
-| 📡 **TradingView** | Webhook für TradingView-Alerts + fertiges Pine-Script |
+| 🟣 **Kleine KI am Bildschirmrand** | Immer im Vordergrund, auf allen Schreibtischen, stört nicht beim Klicken (durchklickbar). Reagiert sichtbar: hört zu, denkt, spricht (Mund/Wellen bewegen sich mit der Stimme). |
+| 🎨 **Skins** | Nebula, Hologramm, Neon, Glas, Roboter – oder **dein eigenes Bild**. Farbe, Größe und Seite (links/rechts) frei wählbar. |
+| 🗣 **Reden wie mit einem Menschen** | Wake-Word **„Hey Vincent“** (offline), danach einfach weiterreden; Nachfragen ohne erneutes „Hey Vincent“. Alternativ **⌥ Leertaste**. |
+| 🔊 **Realistische Stimme** | ElevenLabs (sehr realistisch, mit API-Key) → OpenAI → Piper (offline) → macOS-Stimme. |
+| 🧠 **Gedächtnis, das wächst** | Merkt sich Fakten, Vorlieben und Regeln aus jedem Gespräch, lernt aus jedem Trade. Nachts „schläft“ er: fasst Ähnliches zusammen, vergisst Unwichtiges – so bleibt das Gedächtnis schlau statt voll. Alles einsehbar und editierbar. |
+| 📊 **Marktanalyse** | 35+ Strategien (Trend, Momentum, Mean-Reversion, Ausbrüche, Volumen, Kerzenmuster), Marktphasen, übergeordneter Trend, Fear & Greed, News. Walk-Forward-Backtests entscheiden, welche Strategie in welchem Markt zählt. |
+| 💼 **Handeln in TradingView** | Vincent öffnet das Order-Ticket in der TradingView-App, wählt Kauf/Verkauf, Menge, Stop-Loss und Take-Profit, kontrolliert alles und klickt erst nach deinem „Ja“. |
+| 🖥 **Zugriff auf deinen Mac** | Programme und Webseiten öffnen, auf den Bildschirm schauen („Was siehst du gerade?“) und – mit Claude-API-Key – den Mac mit Maus und Tastatur bedienen. |
+| 💬 **Telegram (optional)** | Von unterwegs fragen, Vorschläge mit `/ja` oder `/nein` beantworten. |
 
 ---
 
-## Installation (MacBook)
+## Installation (MacBook, macOS 13 oder neuer)
 
-1. **Projekt herunterladen** – auf GitHub „Code → Download ZIP“ und entpacken, oder im Terminal:
-   ```bash
-   git clone https://github.com/louisttacc-hue/XRZTradingBot.git
-   cd XRZTradingBot
-   ```
-2. **Installieren** (installiert Homebrew, Python 3.12, alle Pakete, Ollama und ein passendes KI-Modell je nach Arbeitsspeicher):
-   ```bash
-   bash install_mac.sh
-   ```
-3. **Starten** – Doppelklick auf **„XRZ Trading Bot“** auf dem Schreibtisch
-   (oder `./start_mac.command`). Das Dashboard öffnet sich unter <http://127.0.0.1:8765>.
-
-> Ohne Internet/Börse ausprobieren: `./start_mac.command --demo` (künstliche Kurse).
-
-### Erste Schritte
-
-1. **Telegram:** In Telegram `@BotFather` öffnen → `/newbot` → Namen vergeben → Token kopieren.
-   Im Dashboard unter **Einstellungen → API-Keys & Tokens** einfügen und speichern.
-2. **Koppeln:** Deinem neuen Bot in Telegram `/start 123456` schicken – den Code zeigt das
-   Dashboard (Übersicht/Einrichtung). Danach gehorcht der Bot **nur noch deinem Chat**.
-3. **Optional schlauer machen:** Anthropic-API-Key (Claude) oder OpenAI-Key eintragen.
-4. **Paper-Trading starten:** `/paper` in Telegram oder Button im Dashboard.
-5. Beobachten, Fragen stellen, Wissen beibringen – und erst nach Wochen mit guten
-   Ergebnissen über Live-Trading nachdenken.
-
-### macOS-Berechtigungen
-*Systemeinstellungen → Datenschutz & Sicherheit:*
-- **Bildschirmaufnahme** → Terminal erlauben (für `/chart` und `/screenshot`)
-- **Bedienungshilfen** → Terminal erlauben (nur wenn TradingView in der **App** statt im Browser gesteuert werden soll)
-
-### Autostart (optional)
-```bash
-bash scripts/autostart_mac.sh an    # startet den Bot bei jeder Anmeldung, auch nach Abstürzen
-bash scripts/autostart_mac.sh aus
-```
-Der Bot hält den Mac mit `caffeinate` wach – er muss laufen, um Stops zu überwachen.
-
----
-
-## Die KI: lokal oder Cloud
-
-| Einstellung `ai.provider` | Verhalten |
-|---|---|
-| `auto` (Standard) | Claude, wenn ein Anthropic-Key eingetragen ist → sonst OpenAI, wenn Key → sonst lokale KI. Fällt ein Cloud-Dienst aus, springt automatisch die lokale KI ein. |
-| `ollama` | Immer lokal (kostenlos, privat, offline) |
-| `anthropic` / `openai` | Bevorzugt diesen Anbieter |
-
-- **Lokal:** Ollama mit `qwen3:4b` (< 16 GB RAM), `qwen3:8b` (16 GB) oder `qwen3:14b` (≥ 32 GB).
-  Für Chart-Bilder optional ein Bild-Modell eintragen, z. B. `qwen2.5vl:7b` (`ollama pull qwen2.5vl:7b`).
-- **Claude:** Standardmodell `claude-opus-5-5` mit einstellbarem Denk-Aufwand (`low` … `max`, Standard `medium`).
-  Günstiger: `claude-sonnet-5-5` oder `claude-haiku-5-5` eintragen. Bei Sicherheitsablehnungen
-  springt die Anthropic-API serverseitig automatisch auf ein Ersatzmodell („fallbacks“) – das ist
-  eingeschaltet. API-Nutzung kostet Geld (Abrechnung bei Anthropic/OpenAI).
-- **OpenAI-kompatibel:** auch OpenRouter, Groq, DeepSeek, LM Studio usw. über `ai.openai_base_url`.
-
-Die KI **entscheidet nicht allein**: Sie prüft jeden Trade-Kandidaten und darf ihn **ablehnen
-oder verkleinern, aber nie vergrößern**. Das Risiko-Management hat immer das letzte Wort.
-
----
-
-## Wie eine Entscheidung entsteht
-
-```
-Kursdaten (1h + 4h)  ──►  Indikatoren · Marktphase · Unterstützung/Widerstand
-                               │
-7 Strategien ──► Gewichte aus Walk-Forward-Backtest × Lernfaktor aus echten Trades
-                               │
-               Ensemble-Score −1 … +1  (+ TradingView-Alert, gefiltert durch 4h-Trend)
-                               │
-         Score ≥ Schwelle & genug Strategien einig & Kurs nicht überdehnt?
-                               │
-             KI-Prüfung (Stimmung, Wissen, Lektionen) → ok / ablehnen / kleiner
-                               │
-  Risiko-Management: Positionsgröße, Limits, Notbremsen → Order → Stop & Ziel
-                               │
-          Trade geschlossen → Ergebnis → Lektion in die Wissensdatenbank
-```
-
-Märkte ohne nachweisbaren Vorteil im Backtest werden **nur analysiert, nie gehandelt**.
-
----
-
-## Live-Trading (Echtgeld)
-
-Mehrere Sicherheitsstufen – Live-Trading kann **nicht aus Versehen** starten:
-
-1. Börsen-API-Key **ohne Auszahlungsrechte** erstellen (am besten mit IP-Beschränkung) und im Dashboard eintragen.
-2. Optional erst mit dem **Testnet** der Börse üben (`exchange.sandbox`).
-3. Im Dashboard **„Live-Trading freischalten“** anhaken (bewusste Entscheidung am Mac).
-4. In Telegram `/live` → der Bot zeigt Kontostand und Limits → mit `/bestaetigen CODE` innerhalb von 5 Minuten bestätigen.
-
-Schutzmechanismen im Live-Modus: nur Spot-Long (kein Hebel, keine Shorts) · harte Obergrenze pro Order
-(`risk.max_live_order_usd`, Standard 100) · Tagesverlust-Limit · Drawdown-Notbremse · Stop-Loss zusätzlich
-an der Börse · nach einem Neustart pausieren neue Einstiege, bis du `/weiter` sendest · `/panik` schließt alles.
-
----
-
-## TradingView
-
-**Charts auf dem Mac:** `/chart BTC` öffnet TradingView (Browser oder App), macht einen Screenshot,
-schickt ihn dir und lässt die KI den Chart zusammen mit der berechneten Analyse bewerten.
-
-**Alerts an den Bot schicken (Webhook):**
-1. Dashboard → Einstellungen: *TradingView-Webhook aktiv* + *Passwort für TradingView-Webhooks* setzen → Bot neu starten.
-2. Port ins Internet freigeben, z. B. `brew install cloudflared` und `cloudflared tunnel --url http://localhost:8766`.
-3. In TradingView das Pine-Script [`tradingview/xrz_signale.pine`](tradingview/xrz_signale.pine) zum Chart hinzufügen
-   (Passphrase eintragen) und einen Alarm mit „Any alert() function call“ und der Webhook-URL
-   `https://DEINE-TUNNEL-ADRESSE/webhook/tradingview` anlegen.
-4. Eigene Alerts gehen auch: Nachricht `{"passphrase":"…","symbol":"{{ticker}}","action":"buy"}` (`buy` / `sell` / `close`).
-
-`tradingview.alert_mode`: **signal** (Standard) = der Alert fließt als starkes Signal in die Gesamtentscheidung ein ·
-**execute** = der Bot handelt den Alert direkt (immer mit Risiko-Management und KI-Prüfung).
-
----
-
-## Telegram-Befehle
-
-| Befehl | Was passiert |
-|---|---|
-| `/status` | Konto, offene Positionen, letzte Signale |
-| `/markt` | Alle Märkte der Watchlist + Stimmung |
-| `/analyse BTC` · `/analyse ETH 4h` | Komplette Analyse |
-| `/backtest SOL` | Walk-Forward-Backtest aller Strategien |
-| `/chart BTC` · `/screenshot` | TradingView am Mac öffnen + Screenshot + KI-Analyse |
-| `/paper` · `/stop` · `/pause` · `/weiter` | Paper-Trading starten / ausschalten / pausieren / fortsetzen |
-| `/live` → `/bestaetigen CODE` | Live-Trading starten |
-| `/panik` | Alle Positionen sofort schließen |
-| `/positionen` · `/trades` · `/schliessen BTC` | Positionen & Historie |
-| `/lerne <Text>` · `/wissen <Suche>` · `/url <Link>` | Wissen beibringen, durchsuchen, Webseite lernen |
-| 📎 Dokument · 🖼 Foto | PDF/TXT wird gelernt · Chartbild wird analysiert |
-| `/watchlist` · `/add SOL` · `/remove XRP` | Watchlist verwalten |
-| `/einstellungen` · `/set risk.risk_per_trade_pct 0.5` | Einstellungen ansehen/ändern |
-| `/bericht` · `/ki` · `/neu` | Tagesbericht · KI-Status · Chatverlauf leeren |
-
-Oder einfach schreiben: *„Wie sieht der Markt aus?“*, *„Merk dir: Ich will keine Trades vor FED-Terminen“*,
-*„Warum hast du ETH gekauft?“*, *„Starte Paper-Trading“*.
-
----
-
-## Sicherheit
-
-- Dashboard nur auf `127.0.0.1` erreichbar, mit internem Zugriffstoken und Host-Prüfung (Schutz gegen fremde Webseiten).
-- API-Keys liegen im **macOS-Schlüsselbund** (sonst in `secrets.json` mit Rechten 600) – nie im Projektordner, nie in Git.
-- Telegram reagiert nur auf gekoppelte Chats; falsche Kopplungscodes werden nach 5 Versuchen ungültig.
-- **Keine beliebigen Shell-Befehle per Telegram:** Die Mac-Steuerung ist auf sichere Aktionen begrenzt
-  (TradingView, Screenshots, Mitteilungen). Wer sonst deinen Telegram-Account oder Bot-Token erbeutet, hätte deinen ganzen Mac.
-- Webhook läuft auf eigenem Port mit Passphrase und Rate-Limit und kennt keine Dashboard-Funktionen.
-
----
-
-## Daten & Kommandozeile
-
-Alle Daten (Einstellungen, Datenbank mit Trades und Wissen, Logs, Screenshots) liegen in
-`~/Library/Application Support/XRZTradingBot` (`python -m xrz where` zeigt den Pfad).
+Voraussetzung: **TradingView Desktop** ist installiert (tradingview.com/desktop) und du bist eingeloggt.
 
 ```bash
-.venv/bin/python -m xrz                     # Bot starten
-.venv/bin/python -m xrz --demo              # mit künstlichen Kursen
-.venv/bin/python -m xrz analyze BTC 4h      # einmalige Analyse im Terminal
-.venv/bin/python -m xrz backtest ETH        # Walk-Forward-Backtest
+git clone -b claude/inspiring-feynman-ey07gc https://github.com/louisttacc-hue/XRZTradingBot.git
+cd XRZTradingBot
+bash install_mac.sh
 ```
 
-## Projektstruktur
+Das Skript installiert alles Nötige (Homebrew, Python 3.12, Node.js, Ollama + lokales KI-Modell
+passend zu deinem Arbeitsspeicher, Spracherkennung, Offline-Stimme), baut die App und legt
+**„XRZ Vincent“** in den Programme-Ordner. Danach startest du Vincent wie jede andere App.
+Autostart bei der Anmeldung: `bash scripts/autostart_mac.sh an`.
+
+### Beim ersten Start
+1. **Mikrofon erlauben** – damit Vincent „Hey Vincent“ hört.
+2. **Zentrale öffnen** (Klick auf Vincent → Zentrale, oder Dock-Symbol).
+3. **Einstellungen → API-Keys (optional, aber empfohlen):**
+   - **ElevenLabs** → sehr realistische deutsche Stimme
+   - **Anthropic (Claude)** → deutlich schlauer + Vincent kann den Mac bedienen
+   - **OpenAI** → Alternative für KI und Stimme
+   Ohne Keys läuft alles lokal und kostenlos (Ollama + Piper-Stimme) – nur weniger schlau und weniger natürlich.
+4. **TradingView → „Verbinden“:** Vincent startet die TradingView-App einmal mit einem lokalen
+   Steuer-Port neu (er fragt vorher). Danach siehst du, welches Konto aktiv ist: **Paper Trading** oder **Echtgeld**.
+5. **Für Mac-Steuerung:** Systemeinstellungen → Datenschutz & Sicherheit → **Bedienungshilfen** und
+   **Bildschirmaufnahme** → „XRZ Vincent“ erlauben.
+
+---
+
+## So sprichst du mit Vincent
+
+- „**Hey Vincent**, wie sieht der Markt heute aus?“
+- „Analysier mal Solana auf dem 4-Stunden-Chart.“
+- „**Starte Paper Trading.**“ → Vincent analysiert laufend und meldet sich mit Vorschlägen:
+  *„Ich würde Bitcoin kaufen, im Paper-Konto. Stop-Loss bei 63.200, Ziel bei 67.900. Soll ich?“*
+  → „**Ja**“ / „**Nein**“
+- „Du darfst im Paper-Modus selbst handeln.“ → Vincent handelt im Paper-Konto ohne Rückfrage (nie bei Echtgeld).
+- „**Merk dir:** Ich will keine Trades vor FED-Terminen.“ → wird zur festen Regel, die Vincent bei jeder Trade-Prüfung beachtet.
+- „Was weißt du über mich?“ · „Vergiss die Sache mit …“
+- „Öffne Safari.“ · „Was siehst du gerade auf meinem Bildschirm?“
+- „**Stopp**“ → keine neuen Trades, Vincent hört auf zu reden. „**Panik**“ → alle Positionen in TradingView schließen.
+
+---
+
+## Modi & Sicherheit
+
+| Modus | Was passiert |
+|---|---|
+| **Aus** | Nur Gespräche, keine Vorschläge. |
+| **Beobachten** | Vincent analysiert und nennt Ideen, führt aber nichts aus. |
+| **Paper** | Orders im **TradingView-Paper-Trading-Konto** – nach deinem „Ja“ (oder automatisch, wenn du es erlaubst). |
+| **Echtgeld** | Orders über deinen in TradingView verbundenen Broker. Freischaltung in der Zentrale + Bestätigungscode + **jeder Trade** braucht „Ja, mit Echtgeld“. |
+
+Vor **jeder** Order prüft Vincent in TradingView (über die interne Broker-Schnittstelle und die Oberfläche),
+ob das aktive Konto zum Modus passt. Bei Paper muss es das echte „Paper Trading“-Konto sein – sonst bricht er ab.
+Nach dem Ausfüllen des Order-Tickets liest er alles zurück (Seite, Menge, Symbol, Stop, Ziel) und klickt nur,
+wenn alles stimmt. Keine Order wird je automatisch wiederholt (keine Doppel-Orders).
+
+Weitere Schutzschichten: Positionsgröße nach Risiko (Standard 1 % pro Trade), max. Betrag pro Echtgeld-Order,
+Tagesverlust-Limit, Drawdown-Notbremse, Pause nach Verlusten, die KI darf Trades nur ablehnen oder verkleinern.
+
+> **Hinweis zu TradingView:** Die Steuerung nutzt die Oberfläche und eine interne, nicht offiziell
+> dokumentierte Schnittstelle der TradingView-App. Nach TradingView-Updates kann sie ausfallen – Vincent
+> erkennt das (Selbsttest) und stoppt dann, statt falsch zu klicken. TradingViews Nutzungsbedingungen
+> erlauben automatisierte Orders nicht ausdrücklich; nutze die Funktion verantwortungsvoll und auf eigenes Risiko.
+
+---
+
+## Die Zentrale
+
+Übersicht (Modus, Konto, Vorschläge, Positionen, Signale) · Markt (Chart, Analyse, Backtest) ·
+Strategien (alle 35+ mit Erklärung) · Gedächtnis (Kernprofil, Erinnerungen bearbeiten/anheften/löschen,
+„Jetzt verdichten“) · Stimme & Aussehen (Skins, Farbe, Stimmen probehören) · TradingView (Verbindung,
+Konto-Erkennung, Test-Order ohne Absenden) · Einstellungen · Protokoll.
+
+## Telegram (optional)
+
+Bot bei `@BotFather` anlegen, Token in der Zentrale eintragen, deinem Bot `/start <Code>` schicken
+(Code steht in der Zentrale). Befehle: `/status`, `/markt`, `/analyse BTC`, `/paper`, `/beobachten`,
+`/ja`, `/nein`, `/auto`, `/fragen`, `/pause`, `/weiter`, `/stop`, `/panik`, `/lerne …`, `/wissen …`, `/hilfe`.
+
+## Daten & Datenschutz
+
+Alles bleibt auf deinem Mac: `~/Library/Application Support/XRZ Vincent/` (Einstellungen, Datenbank mit
+Gedächtnis, Trades und Gesprächen, Logs, Modelle). API-Keys liegen im macOS-Schlüsselbund. Die lokale
+Schnittstelle ist nur auf diesem Mac erreichbar und durch einen Zufalls-Schlüssel pro Start geschützt.
+Cloud-Dienste (Claude, OpenAI, ElevenLabs) werden nur genutzt, wenn du einen Key einträgst.
+
+## Für Entwickler
 
 ```
-xrz/
-├── app.py               Start, verbindet alles
-├── config.py            Einstellungen + Geheimnisse (Schlüsselbund)
-├── storage.py           SQLite: Trades, Kontoverlauf, Wissen, Chat
-├── market/              Kursdaten (ccxt, yfinance, Demo) + Stimmung
-├── analysis/            Indikatoren, Marktphase, Unterstützung/Widerstand
-├── strategies/          7 Strategien
-├── backtest/            Backtester + Walk-Forward-Optimierung
-├── trading/             Analyzer (Ensemble), Risiko, Paper/Live-Broker, Engine
-├── ai/                  KI-Anbieter, Gehirn mit Werkzeugen, Wissensdatenbank
-├── interfaces/          Telegram-Bot
-├── mac/                 Mac-Steuerung (TradingView, Screenshots, Mitteilungen)
-└── web/                 Dashboard + TradingView-Webhook
-tradingview/xrz_signale.pine   Pine-Script für Alerts
-install_mac.sh · start_mac.command · scripts/autostart_mac.sh
+app/        Electron-App (Overlay-Avatar, Zentrale, Tray, Kürzel, startet das Backend)
+xrz/        Python-Backend: server/ (API + WebSocket), trading/ (Engine, Risiko, Analyse),
+            strategies/ (35+), backtest/, tradingview/ (App-Steuerung), voice/ (Wake-Word, Spracherkennung,
+            Stimme), memory/ (Gedächtnis), ai/ (KI-Anbieter, Vincents Gehirn), mac/ (Mac-Steuerung),
+            interfaces/ (Telegram)
 ```
-
-## Entwicklung & Tests
 
 ```bash
 .venv/bin/pip install -r requirements-dev.txt
-.venv/bin/python -m pytest
+.venv/bin/python -m pytest                 # Backend-Tests
+cd app && npm install && npm test          # App-Tests
+.venv/bin/python -m xrz --demo serve       # Backend mit künstlichen Kursen
+cd app && VINCENT_DEMO=1 npm start         # App im Entwicklungsmodus
 ```
-
-## Häufige Probleme
-
-- **„KI nicht erreichbar“** → Ollama-App öffnen bzw. `brew services start ollama`; Modell fehlt → `ollama pull qwen3:8b`.
-- **Screenshot schwarz/leer** → Bildschirmaufnahme-Berechtigung für Terminal erteilen, Terminal neu starten.
-- **Börse liefert keine Daten** (z. B. Binance in deinem Land gesperrt) → unter Einstellungen eine andere Börse wählen (`kraken`, `bybit`, `okx`, `coinbase` …) und die Watchlist anpassen (z. B. `BTC/EUR`).
-- **Aktien** → Symbol ohne Schrägstrich in die Watchlist (`AAPL`, `SPY`) – Daten via yfinance (verzögert), nur Paper-Trading.
-
-## Windows
-
-Der Code ist plattformunabhängig geschrieben (Mac-spezifische Funktionen fallen auf Windows weich zurück).
-Installations- und Startskripte für Windows folgen in einem nächsten Schritt.
-
----
 
 *Keine Anlageberatung. Nutzung auf eigenes Risiko.*

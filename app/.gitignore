@@ -1,0 +1,6 @@
+node_modules/
+dist/
+# wird vom Build-Skript erzeugt (Pfad zum Python-Interpreter auf dem Ziel-Mac)
+build/backend.json
+*.log
+.DS_Store

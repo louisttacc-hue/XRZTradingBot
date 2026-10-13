@@ -1,4 +1,8 @@
-"""Die Trading-Engine: scannt Märkte, entscheidet, führt aus, verwaltet Positionen."""
+"""Die Trading-Engine: analysiert Märkte, macht Trade-Vorschläge, führt sie nach deiner
+Freigabe in der TradingView-App aus (Paper Trading oder Echtgeld) und führt Buch.
+
+Ablauf: Analyse → Vorschlag (Risiko-Check + KI-Prüfung) → dein „Ja“ (Stimme, Klick, Telegram)
+→ Order im TradingView-Order-Ticket mit Stop-Loss/Take-Profit → Kontrolle → Journal."""
 from __future__ import annotations
 
 import asyncio
@@ -6,55 +10,120 @@ import hmac
 import logging
 import secrets
 import time
+import uuid
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from ..config import ConfigManager, Settings
-from ..market.data import MarketData, normalize_symbol
-from ..notify import Notifier
+from ..events import EventBus
+from ..market.data import MarketData, normalize_symbol, to_tradingview_symbol
 from ..storage import Storage, Trade
 from .analyzer import Analysis, Analyzer, _fmt_price
-from .brokers import BrokerError, LiveBroker, PaperBroker
 from .risk import RiskManager
 
 log = logging.getLogger(__name__)
 
-MODES = ("off", "paper", "live")
-MODE_WORD = {"off": "AUS", "paper": "PAPER-TRADING (Spielgeld)", "live": "LIVE (ECHTGELD)"}
+MODES = ("off", "watch", "paper", "live")
+MODE_WORD = {
+    "off": "AUS",
+    "watch": "BEOBACHTEN (nur Vorschläge)",
+    "paper": "PAPER TRADING (TradingView)",
+    "live": "ECHTGELD (TradingView)",
+}
+SIDE_WORD = {"buy": "KAUFEN", "sell": "VERKAUFEN"}
+ACTIVE = ("pending", "approved", "executing")
+
+
+@dataclass
+class Proposal:
+    id: str
+    symbol: str
+    tv_symbol: str
+    side: str  # buy | sell
+    action: str  # open | close
+    qty: float
+    order_type: str = "market"
+    limit_price: float | None = None
+    stop_loss: float | None = None
+    take_profit: float | None = None
+    price: float = 0.0
+    score: float = 0.0
+    reason: str = ""
+    risk_text: str = ""
+    ai_comment: str = ""
+    account_kind: str = "paper"  # paper | live | watch
+    status: str = "pending"  # pending|approved|rejected|executing|done|failed|expired
+    created: float = field(default_factory=time.time)
+    expires: float = 0.0
+    result: str = ""
+    trade_id: int | None = None
+    meta: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    def describe(self) -> str:
+        if self.action == "close":
+            return f"{self.symbol}-Position schließen ({'Echtgeld' if self.account_kind == 'live' else 'Paper'})"
+        parts = [f"{SIDE_WORD[self.side]} {self.qty:g} {self.symbol}", "zum Marktpreis" if self.order_type == "market"
+                 else f"Limit {_fmt_price(self.limit_price or 0)}"]
+        if self.stop_loss:
+            parts.append(f"Stop-Loss {_fmt_price(self.stop_loss)}")
+        if self.take_profit:
+            parts.append(f"Ziel {_fmt_price(self.take_profit)}")
+        return ", ".join(parts)
+
+    def spoken(self) -> str:
+        if self.action == "close":
+            return f"Soll ich die {self.symbol.split('/')[0]}-Position schließen?"
+        what = "kaufen" if self.side == "buy" else "verkaufen"
+        konto = "mit ECHTGELD" if self.account_kind == "live" else "im Paper-Konto"
+        return (f"Ich würde {self.symbol.split('/')[0]} {what}, {konto}. "
+                f"Stop-Loss bei {_fmt_price(self.stop_loss or 0)}, Ziel bei {_fmt_price(self.take_profit or 0)}. "
+                + ("Sag „Ja, mit Echtgeld“, wenn ich es machen soll." if self.account_kind == "live"
+                   else "Soll ich?"))
 
 
 class TradingEngine:
-    def __init__(
-        self,
-        cfg: ConfigManager,
-        storage: Storage,
-        market: MarketData,
-        notifier: Notifier,
-    ):
+    def __init__(self, cfg: ConfigManager, storage: Storage, market: MarketData, events: EventBus, tradingview: Any):
         self.cfg = cfg
         self.storage = storage
         self.market = market
-        self.notifier = notifier
+        self.events = events
+        self.tv = tradingview
         self.analyzer = Analyzer(lambda: self.cfg.settings, market, storage)
         self.risk = RiskManager(lambda: self.cfg.settings, storage)
-        self.paper = PaperBroker(lambda: self.cfg.settings, storage)
-        self.live: LiveBroker | None = None
-        self.brain: Any = None  # wird von app.py gesetzt
+        self.brain: Any = None
+        self.memory: Any = None
         self.last_analyses: dict[str, Analysis] = {}
+        self.proposals: dict[str, Proposal] = {}
+        self.tv_status: dict[str, Any] = {"connected": False, "driver": "none", "account": None,
+                                          "message": "Noch nicht geprüft"}
         self._tasks: list[asyncio.Task] = []
         self._live_code: tuple[str, float] | None = None
-        self._trade_lock = asyncio.Lock()
+        self._exec_lock = asyncio.Lock()
         self._scan_lock = asyncio.Lock()
         self.last_scan_ts = 0.0
         self.started_ts = time.time()
 
-    # ------------------------------------------------------------------ state
+    # ------------------------------------------------------------------ Zustand
     @property
     def s(self) -> Settings:
         return self.cfg.settings
 
     @property
     def mode(self) -> str:
-        return self.storage.kv_get("mode", "off") or "off"
+        m = self.storage.kv_get("mode", "off") or "off"
+        return m if m in MODES else "off"
+
+    @property
+    def autonomy(self) -> str:
+        return self.s.trading.autonomy
+
+    @property
+    def auto_execute(self) -> bool:
+        """Automatisch handeln nur im Paper-Modus und nur, wenn du es erlaubt hast."""
+        return self.mode == "paper" and self.autonomy == "auto"
 
     @property
     def entries_paused(self) -> bool:
@@ -64,35 +133,25 @@ class TradingEngine:
     def halted(self) -> str:
         return self.storage.kv_get("halted", "") or ""
 
-    def broker_for(self, mode: str):
-        if mode == "paper":
-            return self.paper
-        if mode == "live":
-            if self.live is None or self.live.ex is None:
-                raise BrokerError("Live-Börse nicht verbunden")
-            return self.live
-        raise BrokerError("Trading ist aus")
+    def _emit_state(self) -> None:
+        self.events.emit("state.dirty", {})
 
-    # ---------------------------------------------------------------- lifecycle
+    # --------------------------------------------------------------- Lebenszyklus
     async def start(self) -> None:
-        if self.mode == "live" or self.storage.open_trades("live"):
-            try:
-                await self._connect_live()
-            except Exception as exc:
-                await self.notifier.send("error", f"Live-Börse beim Start nicht erreichbar: {exc}")
-            if self.mode == "live":
-                self.storage.kv_set("entries_paused", True)
-                await self.notifier.send(
-                    "warning",
-                    "Neustart im LIVE-Modus: Offene Positionen werden weiter überwacht, neue Einstiege sind "
-                    "pausiert. Mit /weiter wieder freigeben.",
-                )
+        if self.mode == "live":
+            self.storage.kv_set("entries_paused", True)
+            await self.events.notify(
+                "warning",
+                "Neustart im Echtgeld-Modus: Neue Vorschläge sind pausiert. Sag „weiter“ oder tippe auf Fortsetzen.",
+            )
         self._tasks = [
-            asyncio.create_task(self._loop("scan", self.s.trading.scan_interval_minutes * 60, self.scan_once, initial_delay=5)),
-            asyncio.create_task(self._loop("manage", self.s.trading.manage_interval_seconds, self.manage_once, initial_delay=3)),
-            asyncio.create_task(self._loop("deep", 3600, self._deep_if_due, initial_delay=1)),
-            asyncio.create_task(self._loop("equity", 300, self.snapshot_equity, initial_delay=10)),
-            asyncio.create_task(self._loop("report", 60, self._daily_report_if_due, initial_delay=30)),
+            asyncio.create_task(self._loop("tv", 20, self.refresh_tradingview, initial_delay=2)),
+            asyncio.create_task(self._loop("scan", self.s.trading.scan_interval_minutes * 60, self.scan_once, initial_delay=8)),
+            asyncio.create_task(self._loop("manage", 30, self.manage_once, initial_delay=15)),
+            asyncio.create_task(self._loop("deep", 3600, self._deep_if_due, initial_delay=4)),
+            asyncio.create_task(self._loop("equity", 300, self.snapshot_equity, initial_delay=30)),
+            asyncio.create_task(self._loop("report", 60, self._daily_report_if_due, initial_delay=45)),
+            asyncio.create_task(self._loop("memory", 3600, self._memory_maintenance, initial_delay=120)),
         ]
 
     async def stop(self) -> None:
@@ -111,136 +170,157 @@ class TradingEngine:
             except Exception as exc:
                 log.exception("Fehler in Schleife %s", name)
                 self.storage.log_event("ERROR", f"{name}: {exc}", "error")
-            # Intervalle können sich durch Einstellungen ändern
             if name == "scan":
                 interval = self.s.trading.scan_interval_minutes * 60
-            elif name == "manage":
-                interval = self.s.trading.manage_interval_seconds
             await asyncio.sleep(max(5.0, interval))
 
-    # ----------------------------------------------------------- Modus-Wechsel
+    # ---------------------------------------------------------------- TradingView
+    async def refresh_tradingview(self) -> dict[str, Any]:
+        try:
+            st = await self.tv.status()
+        except Exception as exc:  # Controller soll nie werfen – trotzdem absichern
+            st = {"connected": False, "driver": "none", "account": None, "message": f"Fehler: {exc}"}
+        changed = (st.get("connected"), (st.get("account") or {}).get("kind")) != (
+            self.tv_status.get("connected"), (self.tv_status.get("account") or {}).get("kind"))
+        self.tv_status = st
+        if changed:
+            self.events.emit("tradingview", {"status": st})
+            self._emit_state()
+        return st
+
+    def account_kind(self) -> str:
+        acc = self.tv_status.get("account") or {}
+        return acc.get("kind") or "unknown"
+
+    async def account_equity(self) -> float:
+        acc = self.tv_status.get("account") or {}
+        for key in ("equity", "balance"):
+            v = acc.get(key)
+            if isinstance(v, (int, float)) and v > 0:
+                return float(v)
+        return float(self.s.trading.account_size_fallback)
+
+    # -------------------------------------------------------------- Modus-Wechsel
     async def set_mode(self, mode: str) -> str:
         if mode not in MODES:
             raise ValueError(f"Unbekannter Modus {mode}")
         if mode == "live":
-            raise PermissionError("Live-Modus nur über request_live()/confirm_live()")
+            raise PermissionError("Echtgeld nur über request_live()/confirm_live()")
         old = self.mode
         self.storage.kv_set("mode", mode)
         self.storage.kv_set("entries_paused", False)
+        if old == "live" and mode != "live":
+            self.risk.reset_peak("live", 0.0)
         msg = f"Modus: {MODE_WORD[old]} → {MODE_WORD[mode]}" if old != mode else f"Läuft bereits: {MODE_WORD[mode]}"
-        if mode == "paper":
-            equity = await self.current_equity("paper")
-            cash = await self.paper.cash()
-            msg += (
-                f"\nPaper-Konto: Wert {equity:,.2f}, davon frei {cash:,.2f}. "
-                "Ich analysiere jetzt die Märkte und handle selbstständig."
-            )
+        if mode in ("watch", "paper"):
+            st = await self.refresh_tradingview()
+            kind = (st.get("account") or {}).get("kind")
+            if mode == "paper":
+                if not st.get("connected"):
+                    msg += ("\nTradingView ist noch nicht verbunden – ich analysiere schon und verbinde mich, "
+                            "sobald du mir die Steuerung erlaubst (Zentrale → TradingView).")
+                elif kind != "paper":
+                    msg += ("\n⚠️ In TradingView ist gerade KEIN Paper-Trading-Konto aktiv. Bitte unten im "
+                            "Handelspanel „Paper Trading“ auswählen – vorher führe ich nichts aus.")
+                else:
+                    msg += "\nTradingView Paper Trading ist aktiv ✓"
+                msg += ("\nIch handle automatisch (nur Paper)." if self.autonomy == "auto"
+                        else "\nVor jedem Trade frage ich dich.")
+            else:
+                msg += "\nIch analysiere und mache Vorschläge, führe aber nichts aus."
             asyncio.create_task(self.scan_once())
         if mode == "off":
-            n = len(self.storage.open_trades())
-            if n:
-                msg += f"\n{n} offene Position(en) werden weiter mit Stop-Loss/Take-Profit überwacht. /panik schließt alles."
-        await self.notifier.send("mode", msg)
+            self._expire_all("Modus ausgeschaltet")
+        await self.events.notify("mode", msg)
+        self._emit_state()
         return msg
 
-    async def _connect_live(self) -> dict[str, float]:
-        if self.live is None:
-            self.live = LiveBroker(lambda: self.cfg.settings, self.cfg.secrets)
-        return await self.live.connect()
-
-    async def request_live(self) -> str:
+    async def request_live(self) -> dict[str, Any]:
         if not self.s.live_trading_unlocked:
-            return (
-                "🔒 Live-Trading ist gesperrt. Bitte zuerst im Dashboard unter Einstellungen → Sicherheit "
-                "'Live-Trading freischalten' aktivieren (bewusste Entscheidung am Mac)."
-            )
+            return {"needs_confirmation": False, "text": (
+                "🔒 Echtgeld ist gesperrt. Schalte es zuerst in der Zentrale unter Einstellungen → Sicherheit frei "
+                "(bewusste Entscheidung am Mac).")}
         if self.s.exchange.data_source == "demo":
-            return "Live-Trading ist mit Demo-Daten nicht möglich. Bitte Datenquelle 'exchange' wählen."
-        try:
-            totals = await self._connect_live()
-        except Exception as exc:
-            return f"❌ Verbindung zur Börse fehlgeschlagen: {exc}"
+            return {"needs_confirmation": False, "text": "Mit Demo-Kursdaten ist Echtgeld nicht möglich."}
+        st = await self.refresh_tradingview()
+        acc = st.get("account") or {}
+        if not st.get("connected"):
+            return {"needs_confirmation": False, "text": f"TradingView ist nicht verbunden: {st.get('message', '')}"}
+        if acc.get("kind") != "live":
+            return {"needs_confirmation": False, "text": (
+                "In TradingView ist kein Echtgeld-Broker aktiv (gerade: "
+                f"{acc.get('broker_title') or acc.get('kind') or 'unbekannt'}). Verbinde zuerst deinen Broker in TradingView.")}
         code = f"{secrets.randbelow(900000) + 100000}"
         self._live_code = (code, time.time() + 300)
-        assert self.live is not None
-        bal = ", ".join(f"{k}: {v:g}" for k, v in sorted(totals.items())[:8]) or "leer"
         r = self.s.risk
-        return (
+        text = (
             "⚠️ ACHTUNG – ECHTGELD ⚠️\n"
-            f"{self.live.describe()}\n"
-            f"Kontostand: {bal}\n"
-            f"Risiko pro Trade: {r.risk_per_trade_pct}% | Tagesverlust-Limit: {r.max_daily_loss_pct}% | "
-            f"Notbremse bei {r.max_drawdown_pct}% Drawdown\n"
-            "Es gibt KEINE Gewinngarantie – Verluste sind möglich.\n\n"
-            f"Zum Bestätigen innerhalb von 5 Minuten senden:  /bestaetigen {code}"
+            f"Broker in TradingView: {acc.get('broker_title') or acc.get('broker_id')} · Konto {acc.get('account_name', '')}\n"
+            f"Risiko pro Trade: {r.risk_per_trade_pct}% · max. {r.max_live_order_usd:g} pro Order · Tagesverlust-Limit "
+            f"{r.max_daily_loss_pct}% · Notbremse bei {r.max_drawdown_pct}% Drawdown\n"
+            "Jeder einzelne Trade braucht trotzdem dein ausdrückliches „Ja, mit Echtgeld“.\n"
+            "Es gibt KEINE Gewinngarantie – Verluste sind möglich.\n"
+            f"Bestätigungscode (5 Minuten gültig): {code}"
         )
+        return {"needs_confirmation": True, "text": text, "code": code}
 
     async def confirm_live(self, code: str) -> str:
         if not self._live_code:
-            return "Es liegt keine Live-Anfrage vor. Erst /live senden."
+            return "Es liegt keine Echtgeld-Anfrage vor."
         expected, until = self._live_code
         if time.time() > until:
             self._live_code = None
-            return "Code abgelaufen. Bitte /live erneut senden."
-        if not hmac.compare_digest(code.strip(), expected):
+            return "Code abgelaufen. Bitte Echtgeld erneut anfragen."
+        if not hmac.compare_digest(str(code).strip(), expected):
             return "Falscher Code."
         self._live_code = None
-        old = self.mode
+        st = await self.refresh_tradingview()
+        if (st.get("account") or {}).get("kind") != "live":
+            return "In TradingView ist inzwischen kein Echtgeld-Konto mehr aktiv – abgebrochen."
         self.storage.kv_set("mode", "live")
         self.storage.kv_set("entries_paused", False)
-        equity = await self.current_equity("live")
+        if self.s.trading.autonomy == "auto":
+            self.s.trading.autonomy = "ask"
+            self.cfg.save()
+        equity = await self.account_equity()
         self.risk.reset_peak("live", equity)
-        msg = f"🔴 LIVE-TRADING AKTIV (vorher: {MODE_WORD[old]}). Konto-Wert ≈ {equity:,.2f}. /stop beendet, /panik schließt alles."
-        await self.notifier.send("mode", msg)
-        asyncio.create_task(self.scan_once())
+        msg = "🔴 ECHTGELD-MODUS AKTIV. Jeder Trade braucht dein „Ja, mit Echtgeld“. „Stopp“ oder Panik beendet alles."
+        await self.events.notify("mode", msg)
+        self._emit_state()
         return msg
+
+    async def set_autonomy(self, level: str) -> str:
+        if level not in ("ask", "auto"):
+            raise ValueError("Autonomie muss ask oder auto sein")
+        if level == "auto" and self.mode == "live":
+            return "Im Echtgeld-Modus frage ich immer vor jedem Trade – das lässt sich nicht abschalten."
+        self.s.trading.autonomy = level
+        self.cfg.save()
+        self._emit_state()
+        if level == "auto":
+            return "Okay: Im Paper-Modus handle ich ab jetzt selbstständig. Bei Echtgeld frage ich immer."
+        return "Okay: Ich frage dich vor jedem Trade."
 
     async def pause(self) -> str:
         self.storage.kv_set("entries_paused", True)
-        return "⏸ Neue Einstiege pausiert. Offene Positionen werden weiter verwaltet. /weiter zum Fortsetzen."
+        self._emit_state()
+        return "⏸ Keine neuen Trades mehr, bis du „weiter“ sagst. Offene Positionen schützen Stop-Loss/Ziel in TradingView."
 
     async def resume(self) -> str:
         self.storage.kv_set("entries_paused", False)
-        msg = "▶️ Trading fortgesetzt."
+        msg = "▶️ Weiter geht's."
         if self.halted:
-            equity = await self.current_equity(self.mode) if self.mode in ("paper", "live") else 0
             self.storage.kv_set("halted", "")
             if self.mode in ("paper", "live"):
-                self.risk.reset_peak(self.mode, equity)
-            msg += " Notbremse zurückgesetzt (Höchststand = aktueller Kontowert)."
+                self.risk.reset_peak(self.mode, await self.account_equity())
+            msg += " Notbremse zurückgesetzt."
+        self._emit_state()
         return msg
 
-    # ----------------------------------------------------------------- Konto
-    async def prices_for_open(self) -> dict[str, float]:
-        syms = sorted({t.symbol for t in self.storage.open_trades()})
-        return await self.market.prices(syms) if syms else {}
-
-    async def current_equity(self, mode: str) -> float:
-        broker = self.broker_for(mode)
-        open_trades = self.storage.open_trades(mode)
-        prices = await self.market.prices(sorted({t.symbol for t in open_trades} | set(self.s.trading.watchlist))) if mode == "live" else await self.prices_for_open()
-        return await broker.equity(open_trades, prices)
-
-    async def snapshot_equity(self) -> None:
-        modes = {self.mode} | {t.mode for t in self.storage.open_trades()}
-        for mode in modes:
-            if mode not in ("paper", "live"):
-                continue
-            try:
-                broker = self.broker_for(mode)
-                eq = await self.current_equity(mode)
-                cash = await broker.cash()
-            except Exception as exc:
-                log.info("Equity-Snapshot %s nicht möglich: %s", mode, exc)
-                continue
-            self.storage.record_equity(mode, eq, cash)
-            reason = self.risk.update_equity_marks(mode, eq)
-            if reason and mode == self.mode and not self.halted:
-                self.storage.kv_set("halted", reason)
-                await self.notifier.send("warning", f"🛑 {reason}\nKeine neuen Trades mehr. Prüfe die Lage; /weiter setzt zurück.")
-
-    # ------------------------------------------------------------------ Scan
+    # ----------------------------------------------------------------- Analyse
     async def scan_once(self, symbols: list[str] | None = None) -> list[Analysis]:
+        if self.mode == "off" and symbols is None and self.last_scan_ts and time.time() - self.last_scan_ts < 3600:
+            return list(self.last_analyses.values())
         async with self._scan_lock:
             results: list[Analysis] = []
             for sym in symbols or list(self.s.trading.watchlist):
@@ -252,222 +332,377 @@ class TradingEngine:
                     continue
                 self.last_analyses[sym] = a
                 results.append(a)
+                self.events.emit("analysis", {"summary": self.analysis_summary(a)})
                 try:
                     await self._act_on(a)
                 except Exception as exc:
-                    log.exception("Handeln auf %s fehlgeschlagen", sym)
-                    await self.notifier.send("error", f"Fehler bei {sym}: {exc}")
+                    log.exception("Auswertung %s fehlgeschlagen", sym)
+                    await self.events.notify("error", f"Fehler bei {sym}: {exc}")
             self.last_scan_ts = time.time()
+            self._emit_state()
             return results
+
+    @staticmethod
+    def analysis_summary(a: Analysis) -> dict[str, Any]:
+        return {
+            "symbol": a.symbol, "price": a.price, "change_24h": a.indicators.get("change_24h_pct"),
+            "regime": a.regime.label, "rsi": a.indicators.get("rsi"), "score": a.score, "direction": a.direction,
+            "direction_word": a.direction_word, "has_edge": a.has_edge, "ts": a.ts,
+        }
+
+    def _open_trades(self, symbol: str | None = None, mode: str | None = None) -> list[Trade]:
+        return [t for t in self.storage.open_trades(mode) if symbol is None or t.symbol == symbol]
+
+    def _has_active_proposal(self, symbol: str) -> bool:
+        return any(p.symbol == symbol and p.status in ACTIVE for p in self.proposals.values())
 
     async def _act_on(self, a: Analysis, force_direction: int | None = None, source: str = "Ensemble") -> str:
         mode = self.mode
+        if mode == "off":
+            return "off"
         th_exit = self.s.trading.exit_threshold
-        # Ausstieg, wenn das Gesamtbild gedreht hat (für Positionen jedes Modus)
-        closed_any = False
-        for t in [t for t in self.storage.open_trades() if t.symbol == a.symbol]:
+        # Ausstieg vorschlagen, wenn das Gesamtbild dreht
+        for t in self._open_trades(a.symbol, mode if mode in ("paper", "live") else None):
             if t.meta.get("source") == "TradingView":
-                continue  # direkt per Alert eröffnet → Ausstieg über Stop/Ziel oder TradingView-"close"
-            if (t.side == "long" and a.score < th_exit) or (t.side == "short" and a.score > -th_exit):
-                await self.close_trade(t, f"Signal gedreht (Score {a.score:+.2f})", price=a.price)
-                closed_any = True
-        if closed_any:
-            return "closed"
-        open_t = [t for t in self.storage.open_trades() if t.symbol == a.symbol and t.mode == mode]
-        if open_t or mode not in ("paper", "live"):
-            return "skip"
+                continue
+            flipped = (t.side == "long" and a.score < th_exit) or (t.side == "short" and a.score > -th_exit)
+            if flipped and not self._has_active_proposal(a.symbol):
+                p = self._new_proposal(
+                    a, side="sell" if t.side == "long" else "buy", action="close", qty=t.qty,
+                    reason=f"Signal gedreht (Score {a.score:+.2f})", account_kind=t.mode, trade_id=t.id,
+                )
+                await self._submit_proposal(p)
+                return "close-proposed"
         if self.entries_paused or self.halted:
             return "paused"
         direction = force_direction if force_direction is not None else a.direction
         if direction == 0:
             return "no-signal"
-        if direction < 0 and (mode == "live" or not self.s.trading.allow_short):
+        if direction < 0 and not self.s.trading.allow_short:
             return "no-short"
-        if mode == "live" and "/" not in a.symbol:
-            return "stocks-paper-only"  # Aktien/ETFs nur im Paper-Modus (Daten via yfinance)
-        if self.s.telegram.notify_signals:
-            await self.notifier.send("signal", f"Signal {a.symbol}: {a.direction_word} (Score {a.score:+.2f})")
-        return await self.open_trade(a, direction, source=source)
+        if self._open_trades(a.symbol, mode if mode in ("paper", "live") else None) or self._has_active_proposal(a.symbol):
+            return "exists"
+        p = await self._entry_proposal(a, direction, source)
+        if p is None:
+            return "rejected"
+        await self._submit_proposal(p)
+        return "proposed"
 
-    async def open_trade(self, a: Analysis, direction: int, source: str = "Ensemble") -> str:
-        side = "long" if direction > 0 else "short"
-        # 0) Schnelle Vorprüfung – spart KI-Aufrufe (und API-Kosten), wenn ohnehin kein Trade möglich ist
-        mode = self.mode
-        broker = self.broker_for(mode)
-        pre = self.risk.check_entry(
-            mode=mode, symbol=a.symbol, direction=direction, price=a.price,
-            stop=a.stop_long if direction > 0 else a.stop_short,
-            equity=await self.current_equity(mode), cash=await broker.cash(), open_trades=self.storage.open_trades(),
+    def _new_proposal(self, a: Analysis, side: str, action: str, qty: float, reason: str,
+                      account_kind: str, trade_id: int | None = None) -> Proposal:
+        now = time.time()
+        return Proposal(
+            id=uuid.uuid4().hex[:10], symbol=a.symbol,
+            tv_symbol=to_tradingview_symbol(a.symbol, self.s.tradingview.chart_exchange_prefix),
+            side=side, action=action, qty=qty, price=a.price, score=a.score, reason=reason,
+            account_kind=account_kind, created=now, expires=now + self.s.trading.proposal_timeout_minutes * 60,
+            trade_id=trade_id, meta={"regime": a.regime.label, "atr": a.atr},
         )
-        if not pre.ok:
-            self.storage.log_event("INFO", f"Risiko blockt {side} {a.symbol}: {pre.reason}", "risk")
-            return "risk-blocked"
-        # 1) KI-Prüfung (darf nur ablehnen oder verkleinern) – außerhalb des Locks,
-        #    damit Stop-Loss-Überwachung währenddessen weiterläuft.
-        size_factor, ai_comment = 1.0, ""
+
+    async def _entry_proposal(self, a: Analysis, direction: int, source: str) -> Proposal | None:
+        mode = self.mode
+        account_kind = mode if mode in ("paper", "live") else "watch"
+        side = "buy" if direction > 0 else "sell"
+        try:
+            price = await self.market.price(a.symbol, max_age=10)
+        except Exception:
+            price = a.price
+        stop_dist = abs(a.price - (a.stop_long if direction > 0 else a.stop_short))
+        stop = price - direction * stop_dist
+        tp = price + direction * stop_dist * self.s.risk.take_profit_r
+        equity = await self.account_equity()
+        sizing_mode = mode if mode in ("paper", "live") else "paper"
+        dec = self.risk.check_entry(
+            mode=sizing_mode, symbol=a.symbol, direction=direction, price=price, stop=stop, equity=equity,
+            cash=equity, open_trades=[t for t in self.storage.open_trades() if t.mode == sizing_mode],
+        )
+        if not dec.ok:
+            self.storage.log_event("INFO", f"Risiko blockt {side} {a.symbol}: {dec.reason}", "risk")
+            return None
+        reasons = [f"{sd.label}: {sd.why}" for sd in a.signals if sd.signal == direction and sd.weight > 0]
+        p = self._new_proposal(a, side=side, action="open", qty=_round_qty(dec.qty),
+                               reason=f"{source}: Score {a.score:+.2f}, {a.regime.label}. " + " | ".join(reasons[:3]),
+                               account_kind=account_kind)
+        p.price, p.stop_loss, p.take_profit, p.risk_text = price, stop, tp, dec.reason
+        p.meta["source"] = source
         if self.s.trading.use_ai_review and self.brain is not None:
-            review = await self.brain.review_trade(a, side)
-            ai_comment = review.get("reason", "")
+            review = await self.brain.review_trade(a, "long" if direction > 0 else "short")
+            p.ai_comment = review.get("reason", "")
             if not review.get("approve", True):
-                self.storage.log_event("INFO", f"KI lehnt {side} {a.symbol} ab: {ai_comment}", "ai")
-                if self.s.telegram.notify_signals:
-                    await self.notifier.send("signal", f"🤖 KI hat {side.upper()} {a.symbol} abgelehnt: {ai_comment}")
-                return "ai-rejected"
-            size_factor = float(review.get("size_factor", 1.0))
+                self.storage.log_event("INFO", f"KI verwirft {side} {a.symbol}: {p.ai_comment}", "ai")
+                return None
+            factor = float(review.get("size_factor", 1.0))
+            if factor < 1.0:
+                p.qty = _round_qty(p.qty * max(0.25, factor))
+        if p.qty <= 0:
+            return None
+        return p
 
-        async with self._trade_lock:
-            mode = self.mode
-            if mode not in ("paper", "live") or self.entries_paused or self.halted:
-                return "paused"
-            broker = self.broker_for(mode)
-            price = await self.market.price(a.symbol, max_age=5)
-            stop_dist = abs(a.price - (a.stop_long if direction > 0 else a.stop_short))
-            stop = price - direction * stop_dist
+    async def _submit_proposal(self, p: Proposal) -> None:
+        self.proposals[p.id] = p
+        self._prune_proposals()
+        self.events.emit("proposal", {"proposal": p.to_dict()})
+        if p.account_kind == "watch":
+            text = f"💡 Idee (nur Beobachten): {p.describe()}\nGrund: {p.reason}"
+        else:
+            text = f"🔔 Vorschlag: {p.describe()}\nGrund: {p.reason}"
+            if p.ai_comment:
+                text += f"\n🤖 {p.ai_comment}"
+        await self.events.notify("proposal", text, {"proposal_id": p.id, "spoken": p.spoken()})
+        if self.auto_execute and p.account_kind == "paper":
+            await self.approve(p.id, source="auto")
+        self._emit_state()
 
-            # 2) Risiko-Management (hat immer das letzte Wort)
-            open_trades = self.storage.open_trades()
-            equity = await self.current_equity(mode)
-            cash = await broker.cash()
-            dec = self.risk.check_entry(
-                mode=mode, symbol=a.symbol, direction=direction, price=price, stop=stop,
-                equity=equity, cash=cash, open_trades=open_trades, size_factor=size_factor,
-            )
-            if not dec.ok:
-                self.storage.log_event("INFO", f"Risiko blockt {side} {a.symbol}: {dec.reason}", "risk")
-                return "risk-blocked"
+    def _prune_proposals(self, keep: int = 50) -> None:
+        if len(self.proposals) > keep:
+            for pid in sorted(self.proposals, key=lambda k: self.proposals[k].created)[: len(self.proposals) - keep]:
+                if self.proposals[pid].status not in ACTIVE:
+                    del self.proposals[pid]
 
-            # 3) Ausführung
+    def _expire_all(self, reason: str) -> None:
+        for p in self.proposals.values():
+            if p.status == "pending":
+                p.status, p.result = "expired", reason
+
+    # ----------------------------------------------------------- Vorschläge
+    def list_proposals(self, active_only: bool = True) -> list[dict[str, Any]]:
+        now = time.time()
+        out = []
+        for p in sorted(self.proposals.values(), key=lambda x: -x.created):
+            if p.status == "pending" and now > p.expires:
+                p.status, p.result = "expired", "Zeit abgelaufen"
+            if active_only and p.status not in ACTIVE:
+                continue
+            out.append(p.to_dict())
+        return out
+
+    def pending_proposal(self) -> dict[str, Any] | None:
+        pending = [p for p in self.list_proposals(True) if p["status"] == "pending" and p["account_kind"] != "watch"]
+        return pending[0] if pending else None
+
+    async def reject(self, pid: str, source: str = "ui") -> str:
+        p = self.proposals.get(pid)
+        if p is None or p.status != "pending":
+            return "Diesen Vorschlag gibt es nicht (mehr)."
+        p.status, p.result = "rejected", f"Abgelehnt ({source})"
+        self.events.emit("proposal", {"proposal": p.to_dict()})
+        self._emit_state()
+        return f"Okay, ich lasse {p.symbol} aus."
+
+    async def approve(self, pid: str, source: str = "ui") -> str:
+        p = self.proposals.get(pid)
+        if p is None:
+            return "Diesen Vorschlag gibt es nicht."
+        if p.status != "pending":
+            return f"Der Vorschlag ist bereits {p.status}."
+        if time.time() > p.expires:
+            p.status, p.result = "expired", "Zeit abgelaufen"
+            self.events.emit("proposal", {"proposal": p.to_dict()})
+            return "Der Vorschlag ist abgelaufen – die Lage kann sich geändert haben. Ich analysiere neu."
+        mode = self.mode
+        if p.account_kind == "watch" or mode in ("off", "watch"):
+            return "Im Beobachten-Modus führe ich keine Orders aus. Schalte auf Paper Trading, wenn ich handeln soll."
+        if p.account_kind != mode:
+            p.status, p.result = "expired", "Modus hat sich geändert"
+            self.events.emit("proposal", {"proposal": p.to_dict()})
+            return "Der Vorschlag gehört zu einem anderen Modus – verworfen."
+        if mode == "live" and not self.s.live_trading_unlocked:
+            return "Echtgeld ist gesperrt."
+        p.status = "approved"
+        self.events.emit("proposal", {"proposal": p.to_dict()})
+        return await self._execute(p, source)
+
+    async def _execute(self, p: Proposal, source: str) -> str:
+        from ..tradingview.models import AccountKind, OrderRequest  # spät importieren (eigenes Modul)
+
+        expected = AccountKind.LIVE if p.account_kind == "live" else AccountKind.PAPER
+        async with self._exec_lock:
+            p.status = "executing"
+            self.events.emit("proposal", {"proposal": p.to_dict()})
             try:
-                fill = await broker.open(a.symbol, side, dec.qty, price)
+                if p.action == "close":
+                    res = await self.tv.close_position(p.tv_symbol, expected)
+                else:
+                    req = OrderRequest(
+                        symbol=p.tv_symbol, side=p.side, qty=p.qty, order_type=p.order_type,
+                        limit_price=p.limit_price, take_profit=p.take_profit if self.s.tradingview.use_brackets else None,
+                        stop_loss=p.stop_loss if self.s.tradingview.use_brackets else None,
+                    )
+                    res = await self.tv.place_order(req, expected)
             except Exception as exc:
-                await self.notifier.send("error", f"Order {side} {a.symbol} fehlgeschlagen: {exc}")
-                return "order-failed"
-            stop = fill.price - direction * stop_dist
-            tp = fill.price + direction * stop_dist * self.s.risk.take_profit_r
-            reasons = [f"{sd.label}: {sd.why}" for sd in a.signals if sd.signal == direction and sd.weight > 0]
-            trade = Trade(
-                mode=mode, symbol=a.symbol, side=side, qty=fill.qty, entry_price=fill.price,
-                entry_time=time.time(), stop=stop, initial_stop=stop, take_profit=tp, fees=fill.fee,
-                entry_reason=f"{source}: Score {a.score:+.2f}; " + " | ".join(reasons[:4]),
-                score=a.score, strategies={sd.name: float(sd.signal) for sd in a.signals},
-                ai_comment=ai_comment,
-                meta={"order_id": fill.order_id, "atr": a.atr, "regime": a.regime.label, "risk_amount": dec.risk_amount,
-                      "source": source},
-            )
-            self.storage.insert_trade(trade)
-            stop_id = await broker.place_stop(trade)
-            if stop_id:
-                trade.meta["stop_order_id"] = stop_id
-                self.storage.update_trade(trade)
-            emoji = "🟢" if side == "long" else "🔴"
-            txt = (
-                f"{emoji} NEUER TRADE [{mode.upper()}] {side.upper()} {a.symbol}\n"
-                f"Einstieg {_fmt_price(fill.price)} | Menge {fill.qty:.6g} | Wert {fill.qty * fill.price:,.2f}\n"
-                f"Stop-Loss {_fmt_price(stop)} | Take-Profit {_fmt_price(tp)} | {dec.reason}\n"
-                f"Grund: Score {a.score:+.2f}, {a.regime.label}"
-            )
-            if ai_comment:
-                txt += f"\n🤖 KI: {ai_comment}"
-            await self.notifier.send("trade", txt, {"trade_id": trade.id})
-            return "opened"
+                log.exception("TradingView-Ausführung fehlgeschlagen")
+                p.status, p.result = "failed", f"Fehler: {exc}"
+                self.events.emit("proposal", {"proposal": p.to_dict()})
+                await self.events.notify("error", f"❌ {p.symbol}: Ausführung fehlgeschlagen – {exc}")
+                return p.result
+            if not res.ok:
+                p.status, p.result = "failed", res.message
+                self.events.emit("proposal", {"proposal": p.to_dict()})
+                await self.events.notify("error", f"❌ {p.describe()} – nicht ausgeführt: {res.message}")
+                self._emit_state()
+                return f"Nicht ausgeführt: {res.message}"
+            p.status, p.result = "done", res.message
+            if p.action == "close":
+                text = await self._journal_close(p, res)
+            else:
+                text = await self._journal_open(p, res, source)
+            self.events.emit("proposal", {"proposal": p.to_dict()})
+            self._emit_state()
+            return text
 
-    # --------------------------------------------------------------- Verwalten
-    async def manage_once(self) -> None:
-        trades = self.storage.open_trades()
-        if not trades:
-            return
-        prices = await self.market.prices(sorted({t.symbol for t in trades}))
-        for t in trades:
-            price = prices.get(t.symbol)
-            if price is None:
-                continue
+    async def _journal_open(self, p: Proposal, res: Any, source: str) -> str:
+        price = res.avg_price or p.price
+        direction = 1 if p.side == "buy" else -1
+        stop_dist = abs(p.price - (p.stop_loss or p.price))
+        stop = price - direction * stop_dist if stop_dist else p.stop_loss
+        trade = Trade(
+            mode=p.account_kind, symbol=p.symbol, side="long" if p.side == "buy" else "short",
+            qty=res.filled_qty or p.qty, entry_price=price, entry_time=time.time(), stop=stop, initial_stop=stop,
+            take_profit=p.take_profit, entry_reason=p.reason, score=p.score, ai_comment=p.ai_comment,
+            strategies={sd.name: float(sd.signal) for sd in (self.last_analyses[p.symbol].signals
+                                                              if p.symbol in self.last_analyses else [])},
+            meta={"order_id": res.order_id, "tv_symbol": p.tv_symbol, "proposal": p.id, "approved_by": source,
+                  "source": p.meta.get("source", ""), "regime": p.meta.get("regime", ""), "atr": p.meta.get("atr", 0)},
+        )
+        self.storage.insert_trade(trade)
+        p.trade_id = trade.id
+        konto = "ECHTGELD" if p.account_kind == "live" else "PAPER"
+        text = (f"{'🟢' if p.side == 'buy' else '🔴'} [{konto}] {p.describe()} – in TradingView ausgeführt"
+                f"{f' zu {_fmt_price(price)}' if res.avg_price else ''}.")
+        await self.events.notify("trade", text, {"trade_id": trade.id})
+        return text
+
+    async def _journal_close(self, p: Proposal, res: Any) -> str:
+        trades = [t for t in self._open_trades(p.symbol, p.account_kind) if p.trade_id in (None, t.id)]
+        price = res.avg_price
+        if price is None:
             try:
-                broker = self.broker_for(t.mode)
-            except BrokerError:
-                continue
-            filled = await broker.check_stop_filled(t)
-            if filled:
-                await self._finalize(t, filled.price, filled.fee, "Stop-Loss (an der Börse ausgelöst)")
-                continue
-            d = t.direction
-            if t.stop and ((d > 0 and price <= t.stop) or (d < 0 and price >= t.stop)):
-                reason = "Stop-Loss" if t.current_r(t.stop) < 0 else "Trailing-Stop (Gewinn gesichert)"
-                await self.close_trade(t, reason, price=price)
-                continue
-            if t.take_profit and ((d > 0 and price >= t.take_profit) or (d < 0 and price <= t.take_profit)):
-                await self.close_trade(t, "Take-Profit erreicht 🎯", price=price)
-                continue
-            a = self.last_analyses.get(t.symbol)
-            atr = a.atr if a else float(t.meta.get("atr", 0))
-            new_stop = self.risk.trail(t, price, atr)
-            if new_stop:
-                old = t.stop or 0
-                t.stop = new_stop
-                if t.mode == "live" and abs(new_stop - old) / max(old, 1e-9) > 0.003 and t.meta.get("stop_order_id"):
-                    await broker.cancel_stop(t)
-                    sid = await broker.place_stop(t)
-                    if sid:
-                        t.meta["stop_order_id"] = sid
-                self.storage.update_trade(t)
+                price = await self.market.price(p.symbol, max_age=5)
+            except Exception:
+                price = p.price
+        texts = [await self._finalize(t, price, f"Geschlossen ({p.reason})") for t in trades]
+        return "\n".join(texts) or f"{p.symbol}-Position in TradingView geschlossen."
 
-    async def close_trade(self, t: Trade, reason: str, price: float | None = None) -> str:
-        async with self._trade_lock:
-            fresh = self.storage.get_trade(t.id) if t.id else t
-            if fresh is None or fresh.status != "open":
-                return "Position war bereits geschlossen."
-            t = fresh
-            broker = self.broker_for(t.mode)
-            px = price or await self.market.price(t.symbol, max_age=5)
-            try:
-                fill = await broker.close(t, px)
-            except Exception as exc:
-                await self.notifier.send("error", f"Schließen von {t.symbol} fehlgeschlagen: {exc}")
-                return f"Fehler: {exc}"
-            return await self._finalize(t, fill.price, fill.fee, reason)
-
-    async def _finalize(self, t: Trade, exit_price: float, exit_fee: float, reason: str) -> str:
+    async def _finalize(self, t: Trade, exit_price: float, reason: str) -> str:
         t.exit_price = exit_price
         t.exit_time = time.time()
-        t.fees = (t.fees or 0) + exit_fee
-        t.pnl = (exit_price - t.entry_price) * t.qty * t.direction - t.fees
-        t.pnl_pct = t.pnl / (t.entry_price * t.qty) * 100 if t.qty else 0.0
+        t.pnl = (exit_price - t.entry_price) * t.qty * t.direction - (t.fees or 0)
+        t.pnl_pct = t.pnl / (t.entry_price * t.qty) * 100 if t.qty and t.entry_price else 0.0
         rpu = t.risk_per_unit()
         t.r_multiple = (t.pnl / (rpu * t.qty)) if rpu > 0 and t.qty else 0.0
-        t.status = "closed"
-        t.exit_reason = reason
+        t.status, t.exit_reason = "closed", reason
         self.storage.update_trade(t)
-        emoji = "✅" if t.pnl > 0 else "❌"
-        dur_h = (t.exit_time - t.entry_time) / 3600
-        txt = (
-            f"{emoji} TRADE GESCHLOSSEN [{t.mode.upper()}] {t.side.upper()} {t.symbol}\n"
-            f"{_fmt_price(t.entry_price)} → {_fmt_price(exit_price)} | Ergebnis {t.pnl:+,.2f} ({t.pnl_pct:+.2f}%, {t.r_multiple:+.2f}R)\n"
-            f"Grund: {reason} | Dauer {dur_h:.1f} h"
-        )
-        await self.notifier.send("trade", txt, {"trade_id": t.id})
+        konto = "ECHTGELD" if t.mode == "live" else "PAPER"
+        text = (f"{'✅' if t.pnl > 0 else '❌'} [{konto}] {t.symbol} {t.side} geschlossen: {_fmt_price(t.entry_price)} → "
+                f"{_fmt_price(exit_price)} = {t.pnl:+,.2f} ({t.pnl_pct:+.2f}%, {t.r_multiple:+.2f}R). {reason}")
+        await self.events.notify("trade", text, {"trade_id": t.id})
         if self.brain is not None and self.s.ai.reflect_on_trades:
             asyncio.create_task(self.brain.reflect_on_trade(t))
-        return txt
+        return text
 
-    async def close_symbol(self, symbol: str, reason: str = "Manuell geschlossen") -> str:
+    # -------------------------------------------------------------- Verwalten
+    async def manage_once(self) -> None:
+        self.list_proposals(True)  # lässt abgelaufene Vorschläge verfallen
+        if not self.tv_status.get("connected"):
+            return
+        kind = self.account_kind()
+        journal = [t for t in self.storage.open_trades() if t.mode == kind]
+        if not journal:
+            return
+        try:
+            positions = await self.tv.positions()
+        except Exception as exc:
+            log.info("Positionen nicht lesbar: %s", exc)
+            return
+        held = {(p.get("symbol") or "").upper() for p in positions}
+        for t in journal:
+            tv_sym = (t.meta.get("tv_symbol") or to_tradingview_symbol(t.symbol, self.s.tradingview.chart_exchange_prefix)).upper()
+            if tv_sym in held or tv_sym.split(":")[-1] in {h.split(":")[-1] for h in held}:
+                continue
+            try:
+                price = await self.market.price(t.symbol, max_age=10)
+            except Exception:
+                price = t.entry_price
+            if t.take_profit and t.stop:
+                near_tp = abs(price - t.take_profit) < abs(price - t.stop)
+                exit_price, why = (t.take_profit, "Ziel erreicht 🎯") if near_tp else (t.stop, "Stop-Loss")
+            else:
+                exit_price, why = price, "in TradingView geschlossen"
+            await self._finalize(t, exit_price, f"{why} (in TradingView)")
+
+    async def close_symbol(self, symbol: str, reason: str = "Auf deinen Wunsch") -> str:
         symbol = normalize_symbol(symbol, self.s.trading.watchlist)
-        trades = [t for t in self.storage.open_trades() if t.symbol == symbol]
+        mode = self.mode
+        trades = self._open_trades(symbol, mode if mode in ("paper", "live") else None)
         if not trades:
-            return f"Keine offene Position in {symbol}."
-        out = [await self.close_trade(t, reason) for t in trades]
-        return "\n\n".join(out)
+            return f"Ich habe keine offene {symbol}-Position im Journal."
+        t = trades[0]
+        a = self.last_analyses.get(symbol)
+        price = a.price if a else t.entry_price
+        p = Proposal(
+            id=uuid.uuid4().hex[:10], symbol=symbol,
+            tv_symbol=t.meta.get("tv_symbol") or to_tradingview_symbol(symbol, self.s.tradingview.chart_exchange_prefix),
+            side="sell" if t.side == "long" else "buy", action="close", qty=t.qty, price=price, reason=reason,
+            account_kind=t.mode, expires=time.time() + self.s.trading.proposal_timeout_minutes * 60, trade_id=t.id,
+        )
+        self.proposals[p.id] = p
+        if t.mode == "live":
+            self.events.emit("proposal", {"proposal": p.to_dict()})
+            await self.events.notify("proposal", f"🔔 {p.describe()} – bitte bestätigen.", {"proposal_id": p.id,
+                                                                                          "spoken": p.spoken()})
+            return f"Soll ich die {symbol}-Position mit Echtgeld schließen? Sag „Ja, mit Echtgeld“."
+        return await self.approve(p.id, source="nutzer")
 
     async def panic(self) -> str:
-        self.storage.kv_set("entries_paused", True)
-        trades = self.storage.open_trades()
-        results = []
-        for t in trades:
-            results.append(await self.close_trade(t, "PANIK – alles schließen"))
-        self.storage.kv_set("mode", "off")
-        msg = f"🚨 PANIK: {len(trades)} Position(en) geschlossen, Trading AUS."
-        await self.notifier.send("mode", msg)
-        return msg + ("\n\n" + "\n\n".join(results) if results else "")
+        from ..tradingview.models import AccountKind
 
-    # ---------------------------------------------------------- TradingView
+        self.storage.kv_set("entries_paused", True)
+        self._expire_all("Panik")
+        results = []
+        for t in self.storage.open_trades():
+            expected = AccountKind.LIVE if t.mode == "live" else AccountKind.PAPER
+            tv_sym = t.meta.get("tv_symbol") or to_tradingview_symbol(t.symbol, self.s.tradingview.chart_exchange_prefix)
+            try:
+                res = await self.tv.close_position(tv_sym, expected)
+            except Exception as exc:
+                results.append(f"{t.symbol}: Fehler {exc}")
+                continue
+            if res.ok:
+                price = res.avg_price or (await self._safe_price(t.symbol, t.entry_price))
+                results.append(await self._finalize(t, price, "PANIK – alles schließen"))
+            else:
+                results.append(f"{t.symbol}: {res.message} – bitte in TradingView selbst prüfen!")
+        self.storage.kv_set("mode", "off")
+        msg = f"🚨 PANIK: Trading AUS, {len(results)} Position(en) bearbeitet."
+        await self.events.notify("mode", msg)
+        self._emit_state()
+        return msg + ("\n" + "\n".join(results) if results else "")
+
+    async def _safe_price(self, symbol: str, fallback: float) -> float:
+        try:
+            return await self.market.price(symbol, max_age=5)
+        except Exception:
+            return fallback
+
+    # ------------------------------------------------------------- Konto
+    async def snapshot_equity(self) -> None:
+        mode = self.mode
+        if mode not in ("paper", "live") or not self.tv_status.get("connected"):
+            return
+        if self.account_kind() != mode:
+            return
+        acc = self.tv_status.get("account") or {}
+        equity = acc.get("equity") or acc.get("balance")
+        if not isinstance(equity, (int, float)) or equity <= 0:
+            return
+        self.storage.record_equity(mode, float(equity), float(acc.get("balance") or equity))
+        reason = self.risk.update_equity_marks(mode, float(equity))
+        if reason and not self.halted:
+            self.storage.kv_set("halted", reason)
+            await self.events.notify("warning", f"🛑 {reason}\nKeine neuen Trades mehr. „weiter“ setzt zurück.")
+            self._emit_state()
+
+    # ------------------------------------------------------- TradingView-Alerts
     async def handle_tradingview(self, payload: dict[str, Any]) -> dict[str, Any]:
         expected = self.cfg.secrets.get("tradingview_passphrase")
         given = str(payload.get("passphrase", ""))
@@ -480,9 +715,9 @@ class TradingEngine:
             return {"ok": False, "error": "symbol und action (buy/sell/close) erforderlich"}
         symbol = normalize_symbol(raw_symbol, self.s.trading.watchlist)
         self.storage.add_signal("tradingview", symbol, action, {k: v for k, v in payload.items() if k != "passphrase"})
-        await self.notifier.send("signal", f"📡 TradingView-Alert: {action.upper()} {symbol} {payload.get('comment', '')}".strip())
+        await self.events.notify("signal", f"📡 TradingView-Alert: {action.upper()} {symbol}")
         if action == "close":
-            return {"ok": True, "result": await self.close_symbol(symbol, "TradingView-Alert: close")}
+            return {"ok": True, "result": await self.close_symbol(symbol, "TradingView-Alert")}
         try:
             a = await self.analyzer.analyze(symbol)
         except Exception as exc:
@@ -495,89 +730,76 @@ class TradingEngine:
         return {"ok": True, "result": result, "score": a.score}
 
     # ------------------------------------------------------------- Berichte
-    async def status(self) -> dict[str, Any]:
-        mode = self.mode
-        out: dict[str, Any] = {
-            "mode": mode, "mode_word": MODE_WORD[mode], "entries_paused": self.entries_paused,
-            "halted": self.halted, "watchlist": self.s.trading.watchlist, "timeframe": self.s.trading.timeframe,
-            "last_scan": self.last_scan_ts, "uptime_h": (time.time() - self.started_ts) / 3600,
-            "data_source": self.s.exchange.data_source, "exchange": self.s.exchange.name,
-        }
-        prices = await self.prices_for_open()
-        positions = []
+    def positions(self) -> list[dict[str, Any]]:
+        out = []
         for t in self.storage.open_trades():
-            p = prices.get(t.symbol, t.entry_price)
-            positions.append({
-                "id": t.id, "mode": t.mode, "symbol": t.symbol, "side": t.side, "qty": t.qty,
-                "entry": t.entry_price, "price": p, "stop": t.stop, "take_profit": t.take_profit,
-                "pnl": t.unrealized(p), "pnl_pct": t.unrealized(p) / (t.entry_price * t.qty) * 100 if t.qty else 0,
-                "r": t.current_r(p), "since_h": (time.time() - t.entry_time) / 3600,
+            a = self.last_analyses.get(t.symbol)
+            price = a.price if a else None
+            out.append({
+                "id": t.id, "symbol": t.symbol, "side": t.side, "qty": t.qty, "entry": t.entry_price, "stop": t.stop,
+                "take_profit": t.take_profit, "mode": t.mode, "opened": t.entry_time, "price": price,
+                "pnl": t.unrealized(price) if price else None,
             })
-        out["positions"] = positions
-        for m in ("paper", "live"):
-            if m == "live" and (self.live is None or self.live.ex is None):
-                continue
-            try:
-                eq = await self.current_equity(m)
-                start = self.risk.day_start_equity(m, eq)
-                out[m] = {
-                    "equity": eq, "cash": await self.broker_for(m).cash(),
-                    "day_pnl": eq - start, "day_pnl_pct": (eq - start) / start * 100 if start else 0,
-                    "stats": self.storage.trade_stats(m),
-                }
-                if m == "paper":
-                    st = float(self.storage.kv_get("paper_start", eq) or eq)
-                    out[m]["total_pnl_pct"] = (eq / st - 1) * 100 if st else 0
-            except Exception as exc:
-                out[m] = {"error": str(exc)}
         return out
+
+    def state_snapshot_trading(self) -> dict[str, Any]:
+        return {
+            "mode": self.mode, "mode_word": MODE_WORD[self.mode], "autonomy": self.autonomy,
+            "entries_paused": self.entries_paused, "halted": self.halted,
+            "proposals": self.list_proposals(True), "positions": self.positions(),
+            "analyses": [self.analysis_summary(a) for a in self.last_analyses.values()],
+            "watchlist": list(self.s.trading.watchlist), "timeframe": self.s.trading.timeframe,
+            "data_source": self.s.exchange.data_source, "tradingview": self.tv_status,
+        }
+
+    async def status(self) -> dict[str, Any]:
+        st = self.state_snapshot_trading()
+        st["stats"] = {m: self.storage.trade_stats(m) for m in ("paper", "live")}
+        st["last_scan"] = self.last_scan_ts
+        return st
 
     async def status_text(self) -> str:
         st = await self.status()
-        lines = [f"🤖 XRZ Status – Modus: {st['mode_word']}"]
+        tv = st["tradingview"]
+        acc = tv.get("account") or {}
+        konto = {"paper": "Paper Trading ✓", "live": "ECHTGELD ⚠️"}.get(acc.get("kind"), "unbekannt")
+        lines = [f"🤖 Vincent – Modus: {st['mode_word']} · {'fragt vor jedem Trade' if st['autonomy'] == 'ask' else 'Paper automatisch'}"]
+        lines.append(f"TradingView: {'verbunden' if tv.get('connected') else 'nicht verbunden'} · Konto: {konto}"
+                     + (f" · Wert {acc['equity']:,.2f}" if isinstance(acc.get("equity"), (int, float)) else ""))
         if st["halted"]:
             lines.append(f"🛑 {st['halted']}")
         elif st["entries_paused"]:
-            lines.append("⏸ Neue Einstiege pausiert")
-        for m in ("paper", "live"):
-            if m in st and "equity" in st[m]:
-                d = st[m]
-                extra = f", gesamt {d['total_pnl_pct']:+.2f}%" if "total_pnl_pct" in d else ""
-                lines.append(
-                    f"{'📄 Paper' if m == 'paper' else '💶 Live'}: Wert {d['equity']:,.2f} | Cash {d['cash']:,.2f} | "
-                    f"heute {d['day_pnl']:+,.2f} ({d['day_pnl_pct']:+.2f}%{extra})"
-                )
-                s = d["stats"]
-                if s["trades"]:
-                    lines.append(
-                        f"   {s['trades']} Trades, Trefferquote {s['win_rate']:.0f}%, Profit-Faktor {s['profit_factor']:.2f}, Ø {s['avg_r']:+.2f}R"
-                    )
+            lines.append("⏸ Neue Trades pausiert")
+        for m, label in (("paper", "Paper"), ("live", "Echtgeld")):
+            s = st["stats"][m]
+            if s["trades"]:
+                lines.append(f"{label}: {s['trades']} Trades, Trefferquote {s['win_rate']:.0f}%, "
+                             f"Ergebnis {s['pnl']:+,.2f}, Ø {s['avg_r']:+.2f}R")
         if st["positions"]:
             lines.append("Offene Positionen:")
             for p in st["positions"]:
-                lines.append(
-                    f"  {'🟢' if p['side'] == 'long' else '🔴'} [{p['mode']}] {p['symbol']} {p['side']} @ {_fmt_price(p['entry'])} → "
-                    f"{_fmt_price(p['price'])}: {p['pnl']:+,.2f} ({p['pnl_pct']:+.2f}%, {p['r']:+.2f}R) | SL {_fmt_price(p['stop'])}"
-                )
-        else:
-            lines.append("Keine offenen Positionen.")
+                pnl = f" · {p['pnl']:+,.2f}" if p.get("pnl") is not None else ""
+                lines.append(f"  [{p['mode']}] {p['symbol']} {p['side']} {p['qty']:g} @ {_fmt_price(p['entry'])}"
+                             f" · SL {_fmt_price(p['stop'] or 0)}{pnl}")
+        if st["proposals"]:
+            lines.append("Offene Vorschläge:")
+            for p in st["proposals"]:
+                lines.append(f"  {p['symbol']}: {SIDE_WORD.get(p['side'], p['side'])} {p['qty']:g} ({p['status']})")
         if self.last_analyses:
             lines.append("Letzte Signale:")
             for sym, a in self.last_analyses.items():
                 lines.append(f"  {sym}: Score {a.score:+.2f} → {a.direction_word}")
         if st["data_source"] == "demo":
-            lines.append("ℹ️ DEMO-DATEN aktiv (künstliche Kurse).")
+            lines.append("ℹ️ DEMO-KURSE aktiv (künstlich).")
         return "\n".join(lines)
 
     async def daily_report(self) -> str:
         text = await self.status_text()
-        since = time.time() - 86400
-        closed = self.storage.closed_trades(limit=50, since=since)
+        closed = self.storage.closed_trades(limit=50, since=time.time() - 86400)
         lines = [f"📅 Tagesbericht {time.strftime('%d.%m.%Y')}", text, ""]
         if closed:
-            lines.append(f"Heute geschlossene Trades ({len(closed)}):")
-            for t in closed:
-                lines.append(f"  {t.symbol} {t.side}: {t.pnl:+,.2f} ({t.r_multiple:+.2f}R) – {t.exit_reason}")
+            lines.append(f"Heute geschlossen ({len(closed)}):")
+            lines += [f"  {t.symbol} {t.side}: {t.pnl:+,.2f} ({t.r_multiple:+.2f}R) – {t.exit_reason}" for t in closed]
         else:
             lines.append("Heute keine Trades geschlossen.")
         report = "\n".join(lines)
@@ -596,14 +818,12 @@ class TradingEngine:
             return
         try:
             h, m = (int(x) for x in when.split(":", 1))
-            when = f"{h:02d}:{m:02d}"
         except ValueError:
             return
-        now = time.strftime("%H:%M")
         today = time.strftime("%Y-%m-%d")
-        if now >= when and self.storage.kv_get("last_report_day") != today:
+        if time.strftime("%H:%M") >= f"{h:02d}:{m:02d}" and self.storage.kv_get("last_report_day") != today:
             self.storage.kv_set("last_report_day", today)
-            await self.notifier.send("report", await self.daily_report())
+            await self.events.notify("report", await self.daily_report())
 
     async def _deep_if_due(self) -> None:
         tf = self.s.trading.timeframe
@@ -615,3 +835,22 @@ class TradingEngine:
                     self.storage.log_event("INFO", f"Tiefenanalyse {sym} aktualisiert", "analysis")
                 except Exception as exc:
                     log.warning("Tiefenanalyse %s: %s", sym, exc)
+
+    async def _memory_maintenance(self) -> None:
+        if self.memory is not None and hasattr(self.memory, "maybe_consolidate"):
+            report = await self.memory.maybe_consolidate()
+            if report:
+                self.storage.log_event("INFO", f"Gedächtnis: {report}", "memory")
+
+
+def _round_qty(q: float) -> float:
+    """Rundet auf 6 signifikante Stellen (TradingView prüft die genaue Schrittweite selbst)."""
+    if q <= 0:
+        return 0.0
+    from math import floor, log10
+
+    digits = max(0, 5 - int(floor(log10(q))))
+    return round(q, digits)
+
+
+__all__ = ["TradingEngine", "Proposal", "MODES", "MODE_WORD"]

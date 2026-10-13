@@ -1,10 +1,14 @@
-"""Startpunkt: verbindet Engine, KI, Telegram, Dashboard und Mac-Steuerung."""
+"""Startpunkt des Vincent-Backends: verbindet Engine, KI, Gedächtnis, Stimme, TradingView,
+Mac-Steuerung, Telegram und die lokale API. Die Mac-App startet es automatisch mit
+`python -m xrz serve --port <port> --parent-pid <pid>` (Token in VINCENT_TOKEN)."""
 from __future__ import annotations
 
 import argparse
 import asyncio
 import logging
 import logging.handlers
+import os
+import secrets
 import signal
 import sys
 from dataclasses import dataclass
@@ -13,16 +17,18 @@ from typing import Any
 
 from . import APP_NAME, __version__
 from .ai.brain import Brain
-from .ai.knowledge import KnowledgeBase
 from .ai.llm import LLMRouter
 from .config import ConfigManager
+from .events import EventBus
 from .interfaces.telegram_bot import TelegramBot
-from .mac.automation import MacAutomation
+from .mac import MacControl
 from .market.data import MarketData, normalize_symbol
 from .market.sentiment import Sentiment
-from .notify import Notifier
+from .memory import MemoryManager
 from .storage import Storage
+from .tradingview import TradingViewController
 from .trading.engine import TradingEngine
+from .voice import VoiceAssistant
 
 log = logging.getLogger("xrz")
 
@@ -32,13 +38,16 @@ class AppContext:
     cfg: ConfigManager
     storage: Storage
     market: MarketData
-    notifier: Notifier
+    events: EventBus
+    tradingview: TradingViewController
     engine: TradingEngine
     router: LLMRouter
-    kb: KnowledgeBase
+    memory: MemoryManager
     brain: Brain
-    mac: MacAutomation
+    mac: MacControl
+    voice: VoiceAssistant
     telegram: TelegramBot
+    token: str
 
 
 def setup_logging(data_dir: Path, verbose: bool = False) -> None:
@@ -47,55 +56,81 @@ def setup_logging(data_dir: Path, verbose: bool = False) -> None:
     fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s", "%Y-%m-%d %H:%M:%S")
     root = logging.getLogger()
     root.setLevel(logging.DEBUG if verbose else logging.INFO)
-    fh = logging.handlers.RotatingFileHandler(logs / "xrz.log", maxBytes=5_000_000, backupCount=3, encoding="utf-8")
+    fh = logging.handlers.RotatingFileHandler(logs / "vincent.log", maxBytes=5_000_000, backupCount=3, encoding="utf-8")
     fh.setFormatter(fmt)
     ch = logging.StreamHandler(sys.stdout)
     ch.setFormatter(fmt)
     root.handlers = [fh, ch]
-    for noisy in ("httpx", "telegram", "ccxt", "urllib3", "apscheduler", "anthropic", "httpcore"):
+    for noisy in ("httpx", "httpcore", "telegram", "ccxt", "urllib3", "anthropic", "websockets", "uvicorn.error",
+                  "faster_whisper", "numba", "matplotlib"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
-def build(data_dir: Path | None = None, demo: bool = False) -> AppContext:
+def _first_line(text: str) -> str:
+    return (text or "").strip().splitlines()[0][:180] if text else ""
+
+
+def build(data_dir: Path | None = None, demo: bool = False, token: str | None = None) -> AppContext:
     cfg = ConfigManager(data_dir)
     if demo:
         cfg.settings.exchange.data_source = "demo"
-    storage = Storage(cfg.data_dir / "xrz.db")
+    storage = Storage(cfg.data_dir / "vincent.db")
     market = MarketData(cfg.settings.exchange.name, cfg.settings.exchange.data_source)
-    notifier = Notifier(storage)
-    engine = TradingEngine(cfg, storage, market, notifier)
+    events = EventBus(storage)
+    tradingview = TradingViewController(lambda: cfg.settings, cfg.data_dir)
+    engine = TradingEngine(cfg, storage, market, events, tradingview)
     router = LLMRouter(lambda: cfg.settings, cfg.secrets)
-    kb = KnowledgeBase(storage, router)
-    mac = MacAutomation(lambda: cfg.settings, cfg.data_dir)
-    brain = Brain(cfg, storage, router, kb, engine, mac=mac, sentiment=Sentiment())
+    memory = MemoryManager(storage, router, lambda: cfg.settings)
+    mac = MacControl(lambda: cfg.settings, cfg.data_dir)
+    brain = Brain(cfg, storage, router, memory, engine, mac=mac, tradingview=tradingview,
+                  sentiment=Sentiment(), events=events)
     engine.brain = brain
-    telegram = TelegramBot(cfg, storage, engine, brain, kb, mac)
-    notifier.subscribe(telegram.on_notify)
+    engine.memory = memory
+    voice = VoiceAssistant(lambda: cfg.settings, cfg.secrets, cfg.data_dir, emit=events.emit,
+                           on_utterance=brain.handle_voice)
+    brain.voice = voice
+    telegram = TelegramBot(cfg, storage, engine, brain, memory, mac, tradingview)
+    events.subscribe(telegram.on_event)
 
-    async def mac_notify(kind: str, text: str, data: dict[str, Any]) -> None:
-        if kind in ("trade", "warning", "error", "mode"):
-            await mac.notify(APP_NAME, text.splitlines()[0])
-            if kind == "trade" and cfg.settings.mac.speak_trades:
-                await mac.say(text.splitlines()[0])
+    async def side_effects(type_: str, data: dict[str, Any]) -> None:
+        """Vorschläge ansagen, wichtige Meldungen als Mac-Mitteilung."""
+        if type_ != "notify":
+            return
+        kind, text = data.get("kind"), data.get("text", "")
+        if kind in ("trade", "warning", "error") and cfg.settings.mac.notifications:
+            await mac.notify(APP_NAME, _first_line(text))
+        if not cfg.settings.voice.enabled:
+            return
+        if kind == "proposal" and data.get("spoken"):
+            await voice.say(data["spoken"])
+        elif kind == "trade":
+            await voice.say(_first_line(text))
 
-    notifier.subscribe(mac_notify)
-    return AppContext(cfg, storage, market, notifier, engine, router, kb, brain, mac, telegram)
+    events.subscribe(side_effects)
+    tok = token or os.environ.get("VINCENT_TOKEN") or secrets.token_hex(24)
+    return AppContext(cfg, storage, market, events, tradingview, engine, router, memory, brain, mac, voice, telegram, tok)
 
 
-async def run_bot(ctx: AppContext, open_browser: bool = True) -> None:
-    from .web.server import QuietServer, create_dashboard, create_webhook_app
+def _parent_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+async def serve(ctx: AppContext, port: int, host: str = "127.0.0.1", parent_pid: int | None = None) -> None:
     import uvicorn
 
-    s = ctx.cfg.settings
-    seeded = await ctx.kb.seed_if_empty()
-    if seeded:
-        log.info("Grundwissen geladen (%d Einträge)", seeded)
-    await ctx.engine.start()
-    await ctx.telegram.start()
+    from .server import QuietServer, create_api, create_webhook_app
 
-    servers: list[QuietServer] = []
-    dash = QuietServer(uvicorn.Config(create_dashboard(ctx), host=s.web.host, port=s.web.port, log_level="warning", access_log=False))
-    servers.append(dash)
+    if host not in ("127.0.0.1", "localhost"):
+        raise SystemExit("Aus Sicherheitsgründen läuft die Vincent-API nur auf 127.0.0.1.")
+    ctx.events.bind_loop(asyncio.get_running_loop())
+    s = ctx.cfg.settings
+    servers = [QuietServer(uvicorn.Config(create_api(ctx), host=host, port=port, log_level="warning", access_log=False))]
     if s.web.webhook_enabled:
         if not ctx.cfg.secrets.has("tradingview_passphrase"):
             log.warning("Webhook aktiv, aber keine TradingView-Passphrase gesetzt – Alerts werden abgelehnt")
@@ -103,25 +138,18 @@ async def run_bot(ctx: AppContext, open_browser: bool = True) -> None:
                                                   log_level="warning", access_log=False)))
     server_tasks = [asyncio.create_task(srv.serve()) for srv in servers]
 
-    url = f"http://{'127.0.0.1' if s.web.host in ('0.0.0.0', '') else s.web.host}:{s.web.port}"
-    banner = [
-        "",
-        "=" * 64,
-        f"  {APP_NAME} v{__version__} läuft",
-        f"  Dashboard:  {url}",
-        f"  Modus:      {ctx.engine.mode.upper()}  |  Daten: {s.exchange.data_source} ({s.exchange.name})",
-        f"  KI:         {ctx.router.describe()}",
-        f"  Telegram:   {'@' + ctx.telegram.username if ctx.telegram.running else ctx.telegram.error}",
-    ]
-    if ctx.telegram.running and not s.telegram.allowed_chat_ids:
-        banner.append(f"  Koppeln:    sende  /start {ctx.telegram.pairing_code()}  an deinen Bot")
-    if s.web.webhook_enabled:
-        banner.append(f"  Webhook:    http://127.0.0.1:{s.web.webhook_port}/webhook/tradingview")
-    banner += ["  Beenden:    Ctrl+C", "=" * 64, ""]
-    print("\n".join(banner), flush=True)
-    if open_browser and s.web.open_browser_on_start:
-        asyncio.create_task(_open_later(ctx, url))
-    asyncio.create_task(_reembed(ctx))
+    try:
+        seeded = await ctx.memory.seed_if_empty()
+        if seeded:
+            log.info("Grundwissen geladen (%d Einträge)", seeded)
+    except Exception as exc:
+        log.warning("Gedächtnis-Start: %s", exc)
+    await ctx.engine.start()
+    await ctx.telegram.start()
+    await ctx.voice.start()
+
+    print(f"{APP_NAME} v{__version__} – API auf http://{host}:{port}  "
+          f"(KI: {ctx.router.describe()}, Daten: {s.exchange.data_source})", flush=True)
 
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -130,34 +158,33 @@ async def run_bot(ctx: AppContext, open_browser: bool = True) -> None:
             loop.add_signal_handler(sig, stop.set)
         except (NotImplementedError, RuntimeError):  # Windows
             pass
+
+    async def watch_parent() -> None:
+        while parent_pid and not stop.is_set():
+            if not _parent_alive(parent_pid) or os.getppid() == 1:
+                log.info("App beendet – Backend fährt herunter")
+                stop.set()
+            await asyncio.sleep(2)
+
+    watcher = asyncio.create_task(watch_parent())
+    stop_task = asyncio.create_task(stop.wait())
     try:
-        await stop.wait()
+        done, _ = await asyncio.wait([stop_task, *server_tasks], return_when=asyncio.FIRST_COMPLETED)
+        for t in done:
+            if t is not stop_task and t.exception():
+                log.error("Server beendet: %s", t.exception())
     finally:
-        print("\nFahre herunter …", flush=True)
         for srv in servers:
             srv.should_exit = True
-        await ctx.engine.stop()
-        await ctx.telegram.stop()
+        watcher.cancel()
+        stop_task.cancel()
+        for coro in (ctx.voice.stop(), ctx.telegram.stop(), ctx.engine.stop(), ctx.tradingview.disconnect()):
+            try:
+                await asyncio.wait_for(coro, timeout=10)
+            except Exception as exc:
+                log.info("Beim Herunterfahren: %s", exc)
         await asyncio.gather(*server_tasks, return_exceptions=True)
         ctx.storage.close()
-
-
-async def _open_later(ctx: AppContext, url: str) -> None:
-    await asyncio.sleep(1.5)
-    try:
-        await ctx.mac.open_dashboard(url)
-    except Exception:
-        pass
-
-
-async def _reembed(ctx: AppContext) -> None:
-    await asyncio.sleep(20)
-    try:
-        n = await ctx.kb.reembed_missing()
-        if n:
-            log.info("Embeddings für %d Wissenseinträge ergänzt", n)
-    except Exception as exc:
-        log.debug("Re-Embedding: %s", exc)
 
 
 async def _cli_analyze(ctx: AppContext, symbol: str, timeframe: str | None) -> None:
@@ -167,30 +194,43 @@ async def _cli_analyze(ctx: AppContext, symbol: str, timeframe: str | None) -> N
 
 
 async def _cli_backtest(ctx: AppContext, symbol: str) -> None:
-    tool = next(t for t in ctx.brain.tools if t.name == "deep_analysis")
-    print(await tool.handler({"symbol": symbol}))
+    from .server.api import _backtest_text
+
+    sym = normalize_symbol(symbol, ctx.cfg.settings.trading.watchlist)
+    print(_backtest_text(sym, await ctx.engine.analyzer.deep_analysis(sym)))
 
 
 def main(argv: list[str] | None = None) -> None:
-    p = argparse.ArgumentParser(prog="xrz", description=f"{APP_NAME} – lokaler KI-Trading-Bot")
-    p.add_argument("--demo", action="store_true", help="künstliche Kursdaten (ohne Internet/Börse) verwenden")
-    p.add_argument("--data-dir", type=Path, help="eigener Datenordner (Standard: ~/Library/Application Support/XRZTradingBot)")
-    p.add_argument("--no-browser", action="store_true", help="Dashboard nicht automatisch öffnen")
+    p = argparse.ArgumentParser(prog="xrz", description=f"{APP_NAME} – Backend")
+    p.add_argument("--demo", action="store_true", help="künstliche Kursdaten (ohne Internet/Börse)")
+    p.add_argument("--data-dir", type=Path, help="eigener Datenordner")
     p.add_argument("-v", "--verbose", action="store_true")
     sub = p.add_subparsers(dest="cmd")
-    sub.add_parser("run", help="Bot starten (Standard)")
+    sp = sub.add_parser("serve", help="Backend für die App starten (Standard)")
+    sp.add_argument("--port", type=int, default=0, help="Port (Standard aus den Einstellungen)")
+    sp.add_argument("--host", default="127.0.0.1")
+    sp.add_argument("--parent-pid", type=int, default=0, help="beendet sich, wenn dieser Prozess endet")
+    sp.add_argument("--demo", action="store_true", dest="serve_demo", help=argparse.SUPPRESS)
     a = sub.add_parser("analyze", help="Ein Symbol analysieren und beenden")
     a.add_argument("symbol")
     a.add_argument("timeframe", nargs="?")
     b = sub.add_parser("backtest", help="Walk-Forward-Backtest für ein Symbol")
     b.add_argument("symbol")
     sub.add_parser("where", help="Zeigt den Datenordner")
+    sub.add_parser("prefetch", help="Lädt Sprach- und Stimmmodelle vorab herunter")
     args = p.parse_args(argv)
 
-    ctx = build(args.data_dir, demo=args.demo)
+    demo = args.demo or bool(getattr(args, "serve_demo", False))
+    ctx = build(args.data_dir, demo=demo)
     setup_logging(ctx.cfg.data_dir, args.verbose)
     if args.cmd == "where":
         print(ctx.cfg.data_dir)
+        return
+    if args.cmd == "prefetch":
+        from .voice import prefetch
+
+        for line in prefetch(ctx.cfg.settings, ctx.cfg.data_dir, progress=lambda m: print(m, flush=True)):
+            print(line, flush=True)
         return
     if args.cmd == "analyze":
         asyncio.run(_cli_analyze(ctx, args.symbol, args.timeframe))
@@ -198,8 +238,14 @@ def main(argv: list[str] | None = None) -> None:
     if args.cmd == "backtest":
         asyncio.run(_cli_backtest(ctx, args.symbol))
         return
+    port = getattr(args, "port", 0) or ctx.cfg.settings.web.port
+    host = getattr(args, "host", "127.0.0.1")
+    parent = getattr(args, "parent_pid", 0) or None
+    if not os.environ.get("VINCENT_TOKEN"):
+        print(f"Entwickler-Modus: Token {ctx.token}\n"
+              f"Overlay im Browser: app/renderer/overlay/index.html?port={port}&token={ctx.token}", flush=True)
     try:
-        asyncio.run(run_bot(ctx, open_browser=not args.no_browser))
+        asyncio.run(serve(ctx, port, host, parent))
     except KeyboardInterrupt:
         pass
 

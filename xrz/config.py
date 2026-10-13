@@ -31,10 +31,10 @@ def default_data_dir() -> Path:
         return Path(env).expanduser()
     home = Path.home()
     if sys.platform == "darwin":
-        return home / "Library" / "Application Support" / "XRZTradingBot"
+        return home / "Library" / "Application Support" / "XRZ Vincent"
     if sys.platform.startswith("win"):
-        return Path(os.environ.get("APPDATA", home)) / "XRZTradingBot"
-    return home / ".local" / "share" / "xrztradingbot"
+        return Path(os.environ.get("APPDATA", home)) / "XRZ Vincent"
+    return home / ".local" / "share" / "xrz-vincent"
 
 
 # --------------------------------------------------------------------------- #
@@ -59,6 +59,10 @@ class TradingSettings(BaseModel):
     use_ai_review: bool = True  # KI prüft jeden Trade (darf nur ablehnen/verkleinern)
     tradingview_signal_weight: float = 0.35
     tradingview_signal_minutes: int = 120
+    # ask = jeder Trade braucht dein "Ja" (Stimme/Klick/Telegram); auto = nur im Paper-Modus erlaubt
+    autonomy: Literal["ask", "auto"] = "ask"
+    proposal_timeout_minutes: int = 10
+    account_size_fallback: float = 10_000.0  # falls der Kontostand nicht aus TradingView lesbar ist
 
     @field_validator("watchlist")
     @classmethod
@@ -83,21 +87,17 @@ class RiskSettings(BaseModel):
     trailing_activate_r: float = 1.0  # Trailing-Stop ab +1R Gewinn aktivieren
     breakeven_at_r: float = 1.0  # Stop auf Einstand ziehen ab +1R
     cooldown_minutes_after_loss: int = 120
-    max_live_order_usd: float = 100.0  # harte Obergrenze je Live-Order (Sicherheit!)
+    max_live_order_usd: float = 100.0  # harte Obergrenze je Echtgeld-Order (Sicherheit!)
     fee_pct: float = 0.1
     slippage_pct: float = 0.05
     min_order_usd: float = 10.0
 
 
-class PaperSettings(BaseModel):
-    starting_balance: float = 10_000.0
-
-
 class ExchangeSettings(BaseModel):
+    """Nur noch Kursdaten für die Analyse – gehandelt wird ausschließlich in TradingView."""
+
     name: str = "binance"  # jede ccxt-Börse: binance, kraken, bybit, okx, coinbase, bitget, ...
-    sandbox: bool = False  # Testnet der Börse benutzen (falls vorhanden)
     data_source: Literal["exchange", "demo"] = "exchange"
-    exchange_side_stops: bool = True  # Stop-Loss zusätzlich direkt an der Börse platzieren (live)
 
 
 class AISettings(BaseModel):
@@ -117,9 +117,9 @@ class AISettings(BaseModel):
     chat_history_messages: int = 16
     reflect_on_trades: bool = True  # nach jedem Trade eine Lektion ins Wissen schreiben
     personality: str = (
-        "Du bist XRZ, ein extrem gründlicher, ehrlicher Trading-Analyst und Risiko-Manager. "
-        "Du sprichst Deutsch, bist direkt und konkret, nennst Zahlen und Gründe und "
-        "versprichst niemals sichere Gewinne."
+        "Du bist Vincent, ein extrem gründlicher, ehrlicher Trading-Analyst, Risiko-Manager und "
+        "persönlicher Assistent. Du sprichst Deutsch, natürlich und locker wie ein guter Kollege, "
+        "bist direkt und konkret, nennst Zahlen und Gründe und versprichst niemals sichere Gewinne."
     )
 
 
@@ -132,39 +132,84 @@ class TelegramSettings(BaseModel):
 
 
 class WebSettings(BaseModel):
+    """Lokale Backend-API (die App verbindet sich hierüber) + optionaler TradingView-Webhook."""
+
     host: str = "127.0.0.1"
     port: int = 8765
-    open_browser_on_start: bool = True
     webhook_enabled: bool = False
     webhook_port: int = 8766
 
 
 class TradingViewSettings(BaseModel):
-    # signal = Alert fließt als starkes Signal in die Entscheidung ein (empfohlen)
-    # execute = Alert wird direkt gehandelt (aber IMMER mit Risiko-Management)
+    app_path: str = "/Applications/TradingView.app"
+    cdp_port: int = 9333  # lokaler Steuer-Port der TradingView-App (nur 127.0.0.1)
+    # Darf Vincent TradingView neu starten, um die Steuerung zu aktivieren? (sonst fragt er)
+    allow_restart_without_asking: bool = False
+    paper_account_name: str = ""  # optional: genauer Name deines Paper-Kontos
+    chart_exchange_prefix: str = "BINANCE"  # BTC/USDT → BINANCE:BTCUSDT
+    use_brackets: bool = True  # Stop-Loss & Take-Profit direkt im Order-Ticket setzen
+    api_fallback: bool = False  # Notfall: Order über TradingViews interne Schnittstelle statt Klicks
+    # Alerts per Webhook: signal = starkes Signal für die Entscheidung, execute = Vorschlag sofort
     alert_mode: Literal["signal", "execute"] = "signal"
-    chart_exchange_prefix: str = "BINANCE"
-    open_with: Literal["browser", "app"] = "browser"
-    chart_load_seconds: float = 6.0
+
+
+class VoiceSettings(BaseModel):
+    enabled: bool = True
+    wake_word_enabled: bool = True  # "Hey Vincent"
+    assistant_name: str = "Vincent"
+    follow_up_seconds: float = 6.0  # so lange darfst du ohne "Hey Vincent" weiterreden
+    stt_backend: Literal["auto", "mlx", "faster-whisper"] = "auto"
+    stt_model: str = "large-v3-turbo"  # für Befehle (genau)
+    stt_fast_model: str = "small"  # für die Wake-Word-Erkennung (schnell)
+    tts_provider: Literal["auto", "elevenlabs", "openai", "piper", "macos"] = "auto"
+    elevenlabs_voice_id: str = ""
+    elevenlabs_model: str = "eleven_flash_v2_5"
+    openai_tts_model: str = "gpt-4o-mini-tts"
+    openai_tts_voice: str = "cedar"
+    piper_voice: str = "de_DE-thorsten-high"
+    macos_voice: str = ""  # leer = beste installierte deutsche Stimme
+    speak_replies: bool = True  # Antworten vorlesen (auch bei getippten Fragen)
+    input_device: str = ""
+    output_device: str = ""
+
+
+class MemorySettings(BaseModel):
+    max_memories: int = 4000  # Obergrenze: darüber wird verdichtet und Unwichtiges vergessen
+    profile_max_chars: int = 2000  # Kernprofil, das Vincent immer im Kopf hat
+    consolidate_hours: int = 24  # "Schlafphase": Erinnerungen ordnen und verdichten
+    extract_facts: bool = True  # nach jedem Gespräch Fakten/Vorlieben herausziehen
+
+
+class AppearanceSettings(BaseModel):
+    skin: str = "nebula"  # nebula | hologramm | neon | glas | roboter | eigenes
+    accent: str = "#7c5cff"
+    size: int = 132
+    edge: Literal["right", "left"] = "right"
+    custom_image: str = ""  # Pfad zu eigenem Avatar-Bild (PNG/GIF/JPG)
+    show_subtitles: bool = True
 
 
 class MacSettings(BaseModel):
     automation_enabled: bool = True
     notifications: bool = True
-    speak_trades: bool = False
+    # Vincent darf den Mac per Maus/Tastatur bedienen (Claude-Computersteuerung, braucht API-Key)
+    computer_use_enabled: bool = True
+    computer_use_max_steps: int = 30
 
 
 class Settings(BaseModel):
     trading: TradingSettings = Field(default_factory=TradingSettings)
     risk: RiskSettings = Field(default_factory=RiskSettings)
-    paper: PaperSettings = Field(default_factory=PaperSettings)
     exchange: ExchangeSettings = Field(default_factory=ExchangeSettings)
     ai: AISettings = Field(default_factory=AISettings)
+    voice: VoiceSettings = Field(default_factory=VoiceSettings)
+    memory: MemorySettings = Field(default_factory=MemorySettings)
+    appearance: AppearanceSettings = Field(default_factory=AppearanceSettings)
     telegram: TelegramSettings = Field(default_factory=TelegramSettings)
     web: WebSettings = Field(default_factory=WebSettings)
     tradingview: TradingViewSettings = Field(default_factory=TradingViewSettings)
     mac: MacSettings = Field(default_factory=MacSettings)
-    # Live-Trading muss hier bewusst freigeschaltet werden, bevor /live überhaupt geht.
+    # Echtgeld muss hier bewusst freigeschaltet werden, bevor der Live-Modus überhaupt geht.
     live_trading_unlocked: bool = False
 
 
@@ -179,6 +224,11 @@ TELEGRAM_EDITABLE = {
     "trading.higher_tf_filter",
     "trading.allow_short",
     "trading.use_ai_review",
+    "trading.autonomy",
+    "voice.wake_word_enabled",
+    "voice.speak_replies",
+    "voice.tts_provider",
+    "appearance.skin",
     "risk.risk_per_trade_pct",
     "risk.max_position_pct",
     "risk.max_open_positions",
@@ -262,20 +312,18 @@ def set_path(settings: Settings, dotted: str, raw: Any) -> Any:
 # Geheimnisse
 # --------------------------------------------------------------------------- #
 SECRET_KEYS = {
-    "telegram_token": "Telegram-Bot-Token (von @BotFather)",
-    "anthropic_api_key": "Anthropic API-Key (Claude) – macht die KI deutlich schlauer",
+    "anthropic_api_key": "Anthropic API-Key (Claude) – macht Vincent deutlich schlauer und kann den Mac bedienen",
     "openai_api_key": "OpenAI API-Key (oder kompatibler Anbieter)",
-    "exchange_api_key": "Börsen API-Key (nur für Live-Trading, OHNE Auszahlungsrechte!)",
-    "exchange_secret": "Börsen API-Secret",
-    "exchange_password": "Börsen-Passphrase (nur manche Börsen, z. B. OKX/KuCoin)",
-    "tradingview_passphrase": "Passwort für TradingView-Webhooks",
+    "elevenlabs_api_key": "ElevenLabs API-Key – sehr realistische Stimme",
+    "telegram_token": "Telegram-Bot-Token (von @BotFather, optional)",
+    "tradingview_passphrase": "Passwort für TradingView-Webhooks (optional)",
 }
 
 
 class SecretStore:
     """Speichert Geheimnisse im Schlüsselbund oder in einer geschützten Datei."""
 
-    SERVICE = "XRZTradingBot"
+    SERVICE = "XRZ Vincent"
 
     def __init__(self, data_dir: Path, use_keyring: bool | None = None):
         self.path = data_dir / "secrets.json"

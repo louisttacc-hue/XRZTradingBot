@@ -1,0 +1,75 @@
+{
+  "name": "xrz-vincent",
+  "productName": "XRZ Vincent",
+  "version": "2.0.0",
+  "description": "XRZ Vincent – dein KI-Trading-Assistent am Bildschirmrand (macOS).",
+  "author": "XRZ",
+  "license": "UNLICENSED",
+  "private": true,
+  "main": "main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --mac dmg zip",
+    "dist:dir": "electron-builder --mac dir",
+    "icons": "node scripts/make-icons.js",
+    "test": "node --test test/"
+  },
+  "devDependencies": {
+    "electron": "^44.5.0",
+    "electron-builder": "^26.15.0"
+  },
+  "build": {
+    "appId": "de.xrz.vincent",
+    "productName": "XRZ Vincent",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main/**",
+      "renderer/**",
+      "assets/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build",
+        "to": ".",
+        "filter": [
+          "backend.json"
+        ]
+      }
+    ],
+    "mac": {
+      "category": "public.app-category.finance",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "identity": null,
+      "minimumSystemVersion": "13.0",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Vincent hört zu, wenn du „Hey Vincent“ sagst oder die Sprechtaste (⌥ Leertaste) drückst. Die Aufnahme wird nur für die Spracherkennung verwendet.",
+        "NSAppleEventsUsageDescription": "Vincent steuert auf deinen Wunsch andere Apps (z. B. TradingView), um Charts zu öffnen und Orders vorzubereiten.",
+        "NSScreenCaptureUsageDescription": "Vincent liest auf deinen Wunsch den Bildschirm (z. B. TradingView), um Konto, Charts und Order-Tickets zu prüfen."
+      }
+    }
+  }
+}
