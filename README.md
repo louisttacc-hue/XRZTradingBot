@@ -1,6 +1,6 @@
 # XRZ Vincent 🟣
 
-**Vincent** ist eine kleine KI, die als animierte Figur am Rand deines MacBook-Bildschirms lebt.
+**Vincent** ist eine kleine KI, die als animierter kleiner Mensch auf deinem MacBook-Bildschirm steht.
 Du sprichst einfach mit ihr – **„Hey Vincent, wie sieht Bitcoin aus?“** – und sie antwortet mit
 realistischer Stimme. Vincent analysiert den Markt mit über 35 Strategien, merkt sich alles, was du
 ihm erzählst, wird mit jedem Gespräch und jedem Trade schlauer und **bedient für dich die
@@ -8,7 +8,7 @@ TradingView-App**: Paper Trading im TradingView-Paper-Konto oder – nur nach au
 Freigabe – mit Echtgeld über deinen in TradingView verbundenen Broker.
 
 > ⚠️ **Ehrlich vorweg:** Keine KI kann „immer sicheres Geld“ verdienen. Vincent ist auf
-> **Risikokontrolle** gebaut: Er handelt nur nach deinem „Ja“, prüft vor jedem Klick, ob in TradingView
+> **Risikokontrolle** gebaut: Er handelt nur, wenn du es erlaubst, fängt klein an, prüft vor jedem Klick, ob in TradingView
 > wirklich das richtige Konto (Paper oder Echtgeld) aktiv ist, setzt Stop-Loss und Take-Profit direkt
 > im Order-Ticket und hat mehrere Notbremsen. Verluste sind trotzdem möglich. **Erst wochenlang Paper
 > Trading, dann – wenn überhaupt – klein mit Echtgeld.**
@@ -19,13 +19,14 @@ Freigabe – mit Echtgeld über deinen in TradingView verbundenen Broker.
 
 | | |
 |---|---|
-| 🟣 **Kleine KI am Bildschirmrand** | Immer im Vordergrund, auf allen Schreibtischen, stört nicht beim Klicken (durchklickbar). Reagiert sichtbar: hört zu, denkt, spricht (Mund/Wellen bewegen sich mit der Stimme). |
-| 🎨 **Skins** | Nebula, Hologramm, Neon, Glas, Roboter – oder **dein eigenes Bild**. Farbe, Größe und Seite (links/rechts) frei wählbar. |
-| 🗣 **Reden wie mit einem Menschen** | Wake-Word **„Hey Vincent“** (offline), danach einfach weiterreden; Nachfragen ohne erneutes „Hey Vincent“. Alternativ **⌥ Leertaste**. |
+| 🧍 **Kleiner Mensch auf dem Bildschirm** | Immer im Vordergrund, auf allen Schreibtischen, stört nicht beim Klicken (durchklickbar). Winkt, wenn du mit der Maus kommst, redet mit den Händen, hält beim Zuhören die Hand ans Ohr, grübelt beim Nachdenken. |
+| 🪟 **Frei verschiebbar & klein** | Vincent (oder den Chat-Kopf) mit der Maus **überallhin ziehen** – die Position wird gemerkt. **Mausrad/Trackpad über Vincent** macht ihn größer oder kleiner. Klick → Chat-Fenster klappt auf, „✕“ → wieder nur der kleine Mensch. |
+| 🎨 **Skins** | Mensch (Standard), Nebula, Hologramm, Neon, Glas, Roboter – oder **dein eigenes Bild**. Farbe und Größe frei wählbar. |
+| 🗣 **Reden – nur wenn du willst** | Wake-Word **„Hey Vincent“** (offline), danach einfach weiterreden. Oder **Klick auf Vincent** / **⌥ Leertaste** zum Sprechen. Das Weckwort lässt sich abschalten, das Mikro mit einem Klick stummschalten – und **schreiben** geht immer. |
 | 🔊 **Realistische Stimme** | ElevenLabs (sehr realistisch, mit API-Key) → OpenAI → Piper (offline) → macOS-Stimme. |
 | 🧠 **Gedächtnis, das wächst** | Merkt sich Fakten, Vorlieben und Regeln aus jedem Gespräch, lernt aus jedem Trade. Nachts „schläft“ er: fasst Ähnliches zusammen, vergisst Unwichtiges – so bleibt das Gedächtnis schlau statt voll. Alles einsehbar und editierbar. |
 | 📊 **Marktanalyse** | 35+ Strategien (Trend, Momentum, Mean-Reversion, Ausbrüche, Volumen, Kerzenmuster), Marktphasen, übergeordneter Trend, Fear & Greed, News. Walk-Forward-Backtests entscheiden, welche Strategie in welchem Markt zählt. |
-| 💼 **Handeln in TradingView** | Vincent öffnet das Order-Ticket in der TradingView-App, wählt Kauf/Verkauf, Menge, Stop-Loss und Take-Profit, kontrolliert alles und klickt erst nach deinem „Ja“. |
+| 💼 **Handeln in TradingView** | Vincent öffnet das Order-Ticket in der TradingView-App, wählt Kauf/Verkauf, Menge, Stop-Loss und Take-Profit, kontrolliert alles und klickt – nach deinem „Ja“ oder, wenn du ihn lässt, selbstständig (Paper; Echtgeld nur mit Autopilot-Freigabe). Die ersten Trades sind klein (25 % → 100 %). |
 | 🖥 **Zugriff auf deinen Mac** | Programme und Webseiten öffnen, auf den Bildschirm schauen („Was siehst du gerade?“) und – mit Claude-API-Key – den Mac mit Maus und Tastatur bedienen. |
 | 💬 **Telegram (optional)** | Von unterwegs fragen, Vorschläge mit `/ja` oder `/nein` beantworten. |
 
@@ -68,7 +69,8 @@ Autostart bei der Anmeldung: `bash scripts/autostart_mac.sh an`.
 - „**Starte Paper Trading.**“ → Vincent analysiert laufend und meldet sich mit Vorschlägen:
   *„Ich würde Bitcoin kaufen, im Paper-Konto. Stop-Loss bei 63.200, Ziel bei 67.900. Soll ich?“*
   → „**Ja**“ / „**Nein**“
-- „Du darfst im Paper-Modus selbst handeln.“ → Vincent handelt im Paper-Konto ohne Rückfrage (nie bei Echtgeld).
+- „Du darfst selbst handeln.“ → Vincent handelt im Paper-Konto ohne Rückfrage. Mit Echtgeld nur, wenn du in der
+  Zentrale unter **Einstellungen → Sicherheit** zusätzlich den **Echtgeld-Autopiloten** erlaubt hast.
 - „**Merk dir:** Ich will keine Trades vor FED-Terminen.“ → wird zur festen Regel, die Vincent bei jeder Trade-Prüfung beachtet.
 - „Was weißt du über mich?“ · „Vergiss die Sache mit …“
 - „Öffne Safari.“ · „Was siehst du gerade auf meinem Bildschirm?“
@@ -83,14 +85,15 @@ Autostart bei der Anmeldung: `bash scripts/autostart_mac.sh an`.
 | **Aus** | Nur Gespräche, keine Vorschläge. |
 | **Beobachten** | Vincent analysiert und nennt Ideen, führt aber nichts aus. |
 | **Paper** | Orders im **TradingView-Paper-Trading-Konto** – nach deinem „Ja“ (oder automatisch, wenn du es erlaubst). |
-| **Echtgeld** | Orders über deinen in TradingView verbundenen Broker. Freischaltung in der Zentrale + Bestätigungscode + **jeder Trade** braucht „Ja, mit Echtgeld“. |
+| **Echtgeld** | Orders über deinen in TradingView verbundenen Broker. Freischaltung in der Zentrale + Bestätigungscode. Standard: **jeder Trade** braucht „Ja, mit Echtgeld“. Mit **Echtgeld-Autopilot** (eigene Freischaltung am Mac, Eingabe „AUTOPILOT“) + Autonomie „Handelt selbst“ handelt Vincent auch hier selbstständig – klein anfangend und innerhalb aller Grenzen. Per Telegram oder Chat lässt sich der Autopilot **nicht** einschalten. |
 
 Vor **jeder** Order prüft Vincent in TradingView (über die interne Broker-Schnittstelle und die Oberfläche),
 ob das aktive Konto zum Modus passt. Bei Paper muss es das echte „Paper Trading“-Konto sein – sonst bricht er ab.
 Nach dem Ausfüllen des Order-Tickets liest er alles zurück (Seite, Menge, Symbol, Stop, Ziel) und klickt nur,
 wenn alles stimmt. Keine Order wird je automatisch wiederholt (keine Doppel-Orders).
 
-Weitere Schutzschichten: Positionsgröße nach Risiko (Standard 1 % pro Trade), max. Betrag pro Echtgeld-Order,
+Weitere Schutzschichten: Positionsgröße nach Risiko (Standard 1 % pro Trade), **klein anfangen** (die ersten 5 Trades
+je Modus mit 25 % → 100 % der Größe), max. Betrag pro Echtgeld-Order (Standard 100 USD),
 Tagesverlust-Limit, Drawdown-Notbremse, Pause nach Verlusten, die KI darf Trades nur ablehnen oder verkleinern.
 
 > **Hinweis zu TradingView:** Die Steuerung nutzt die Oberfläche und eine interne, nicht offiziell
@@ -134,8 +137,10 @@ xrz/        Python-Backend: server/ (API + WebSocket), trading/ (Engine, Risiko,
 .venv/bin/pip install -r requirements-dev.txt
 .venv/bin/python -m pytest                 # Backend-Tests
 cd app && npm install && npm test          # App-Tests
-.venv/bin/python -m xrz --demo serve       # Backend mit künstlichen Kursen
+.venv/bin/python -m xrz serve --demo       # Backend mit künstlichen Kursen
 cd app && VINCENT_DEMO=1 npm start         # App im Entwicklungsmodus
+# Selbsttest mit Bildschirmfotos (Overlay, Chat, Zentrale), z. B. unter Linux/CI mit xvfb-run:
+cd app && VINCENT_DEMO=1 VINCENT_PYTHON=../.venv/bin/python VINCENT_SELFTEST_DIR=/tmp/vincent-shots npx electron .
 ```
 
 *Keine Anlageberatung. Nutzung auf eigenes Risiko.*

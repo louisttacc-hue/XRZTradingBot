@@ -55,7 +55,7 @@ class TradingSettings(BaseModel):
     min_active_strategies: int = 2  # Mind. so viele Strategien müssen in die Richtung zeigen
     higher_tf_filter: bool = True  # Nicht gegen den übergeordneten Trend handeln
     max_extension_atr: float = 2.5  # Nicht hinterherspringen, wenn Kurs zu weit von EMA20 weg
-    allow_short: bool = False  # Shorts nur im Paper-Modus möglich (Spot-Live = nur Long)
+    allow_short: bool = False  # Leerverkäufe erlauben (Echtgeld nur, wenn der Broker es kann)
     use_ai_review: bool = True  # KI prüft jeden Trade (darf nur ablehnen/verkleinern)
     tradingview_signal_weight: float = 0.35
     tradingview_signal_minutes: int = 120

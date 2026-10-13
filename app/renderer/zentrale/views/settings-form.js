@@ -130,9 +130,9 @@ export const FIELD_HINTS = {
   'trading.watchlist': 'Symbole durch Komma getrennt, z. B. BTC/USDT, ETH/USDT',
   'trading.entry_threshold': 'Ab diesem Ensemble-Score (0,1 … 0,95) wird ein Einstieg erwogen.',
   'trading.exit_threshold': 'Fällt der Score darunter, wird eine Long-Position geschlossen.',
-  'trading.allow_short': 'Shorts gehen nur im Paper-Modus.',
+  'trading.allow_short': 'Leerverkäufe (Short) erlauben – bei Echtgeld nur, wenn dein Broker in TradingView das kann.',
   'trading.use_ai_review': 'Die KI darf Trades nur ablehnen oder verkleinern – nie vergrößern.',
-  'trading.autonomy': '„Automatisch“ ist nur im Paper-Modus erlaubt.',
+  'trading.autonomy': '„Handelt selbst“: Paper ohne Rückfrage; Echtgeld nur mit freigeschaltetem Echtgeld-Autopiloten.',
   'risk.risk_per_trade_pct': 'So viel Prozent des Kontos darf ein Trade höchstens kosten (0,05 … 5).',
   'risk.max_daily_loss_pct': 'Wird es erreicht, gibt es heute keine neuen Trades mehr.',
   'risk.max_drawdown_pct': 'Ab diesem Rückgang vom Höchststand stoppt Vincent den Handel.',
@@ -161,7 +161,7 @@ const TIMEFRAMES = ['1m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '12h', '1d
 export const ENUMS = {
   'trading.autonomy': [
     { value: 'ask', label: 'Fragt vor jedem Trade' },
-    { value: 'auto', label: 'Paper automatisch' },
+    { value: 'auto', label: 'Handelt selbst' },
   ],
   'trading.timeframe': TIMEFRAMES,
   'trading.higher_timeframe': TIMEFRAMES,
