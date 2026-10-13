@@ -1,0 +1,58 @@
+// XRZ Trading Bot – TradingView-Signale
+// ------------------------------------------------------------
+// So richtest du es ein:
+// 1. In TradingView: Pine-Editor öffnen → dieses Skript einfügen → "Zum Chart hinzufügen".
+// 2. In den Einstellungen des Indikators deine Passphrase eintragen
+//    (dieselbe wie im XRZ-Dashboard unter "TradingView-Passphrase").
+// 3. Alarm erstellen: Bedingung = "XRZ Signale → Bot" → "Any alert() function call".
+//    Webhook-URL: https://DEINE-TUNNEL-ADRESSE/webhook/tradingview
+//    Das Nachrichtenfeld leer lassen – das Skript schickt das JSON selbst.
+// 4. Im Bot: "signal" = Alarm fließt als starkes Signal in die Gesamtentscheidung ein (empfohlen),
+//            "execute" = Bot handelt den Alarm direkt (immer mit Risiko-Management).
+// ------------------------------------------------------------
+//@version=5
+indicator("XRZ Signale → Bot", overlay = true)
+
+passphrase = input.string("HIER_PASSPHRASE", "Passphrase (wie im Bot)")
+fastLen    = input.int(12, "EMA schnell", minval = 2)
+slowLen    = input.int(26, "EMA langsam", minval = 3)
+trendLen   = input.int(200, "EMA Trend", minval = 20)
+stLen      = input.int(10, "Supertrend ATR-Länge", minval = 2)
+stMult     = input.float(3.0, "Supertrend Faktor", minval = 0.5, step = 0.1)
+adxMin     = input.float(18.0, "Min. ADX (Trendstärke)", minval = 0)
+sendShort  = input.bool(false, "Short-Signale senden")
+sendExit   = input.bool(true, "Ausstiegs-Signale senden")
+
+emaF = ta.ema(close, fastLen)
+emaS = ta.ema(close, slowLen)
+emaT = ta.ema(close, trendLen)
+[st, dir] = ta.supertrend(stMult, stLen)
+[diPlus, diMinus, adx] = ta.dmi(14, 14)
+
+// In Pine bedeutet dir < 0 = Aufwärtstrend (grün)
+upTrend   = dir < 0
+downTrend = dir > 0
+
+buySignal  = ta.crossover(emaF, emaS) and close > emaT and upTrend and adx > adxMin
+sellSignal = ta.crossunder(emaF, emaS) and close < emaT and downTrend and adx > adxMin
+exitLong   = ta.crossunder(emaF, emaS) or (downTrend and not downTrend[1])
+
+plot(emaF, "EMA schnell", color = color.new(color.blue, 0))
+plot(emaS, "EMA langsam", color = color.new(color.orange, 0))
+plot(emaT, "EMA Trend", color = color.new(color.gray, 0), linewidth = 2)
+plot(st, "Supertrend", color = upTrend ? color.new(color.green, 0) : color.new(color.red, 0))
+plotshape(buySignal, "Kauf", shape.triangleup, location.belowbar, color.new(color.green, 0), size = size.small)
+plotshape(sendShort and sellSignal, "Verkauf", shape.triangledown, location.abovebar, color.new(color.red, 0), size = size.small)
+
+msg(action) =>
+    '{"passphrase":"' + passphrase + '","symbol":"' + syminfo.ticker + '","exchange":"' + syminfo.prefix +
+     '","action":"' + action + '","price":' + str.tostring(close) + ',"timeframe":"' + timeframe.period +
+     '","comment":"XRZ Pine"}'
+
+if barstate.isconfirmed
+    if buySignal
+        alert(msg("buy"), alert.freq_once_per_bar_close)
+    else if sendShort and sellSignal
+        alert(msg("sell"), alert.freq_once_per_bar_close)
+    else if sendExit and exitLong
+        alert(msg("close"), alert.freq_once_per_bar_close)

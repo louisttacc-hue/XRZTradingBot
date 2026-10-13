@@ -1,0 +1,10 @@
+[project]
+name = "xrz-trading-bot"
+version = "1.0.0"
+description = "XRZ Trading Bot – lokaler KI-Trading-Assistent mit Paper- und Live-Trading, Telegram und TradingView"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = ["ignore::DeprecationWarning"]

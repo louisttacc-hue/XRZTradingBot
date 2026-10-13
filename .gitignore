@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Lokale Daten & Geheimnisse – NIEMALS committen
+data/
+*.db
+*.sqlite
+secrets.json
+config.local.yaml
+.env
+logs/
+*.log
+
+# macOS
+.DS_Store

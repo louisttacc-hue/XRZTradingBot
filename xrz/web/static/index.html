@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>XRZ Trading Bot</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect width=%2232%22 height=%2232%22 rx=%227%22 fill=%22%234f8cff%22/%3E%3Cpath d=%22M6 22l6-7 5 4 9-11%22 stroke=%22white%22 stroke-width=%223%22 fill=%22none%22/%3E%3C/svg%3E">
+<script src="/static/vendor/lightweight-charts.standalone.production.js"></script>
+<style>
+:root {
+  --bg: #0d1117; --panel: #161b22; --panel2: #1f2630; --border: #2d3640; --text: #e6edf3; --muted: #8b98a5;
+  --accent: #4f8cff; --green: #2ecc71; --red: #ff5c5c; --amber: #f5b041; --chip: #233044;
+}
+@media (prefers-color-scheme: light) {
+  :root { --bg: #f4f6f9; --panel: #ffffff; --panel2: #f0f3f7; --border: #d9dee5; --text: #1b2430; --muted: #5d6b7a;
+          --accent: #2563eb; --green: #15964f; --red: #d93636; --amber: #b7791f; --chip: #e7eef9; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+header { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+header h1 { font-size: 17px; margin: 0; letter-spacing: .3px; }
+header h1 span { color: var(--accent); }
+nav { display: flex; gap: 4px; flex-wrap: wrap; }
+nav button { background: none; border: 0; color: var(--muted); padding: 7px 12px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+nav button.active { background: var(--chip); color: var(--text); }
+.mode-pill { margin-left: auto; padding: 5px 12px; border-radius: 999px; font-weight: 600; font-size: 13px; background: var(--chip); }
+.mode-off { color: var(--muted); } .mode-paper { color: var(--accent); } .mode-live { color: #fff; background: var(--red); }
+main { padding: 18px 20px; max-width: 1400px; margin: 0 auto; }
+.tab { display: none; } .tab.active { display: block; }
+.grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.card h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 600; }
+.big { font-size: 24px; font-weight: 700; }
+.muted { color: var(--muted); } .pos { color: var(--green); } .neg { color: var(--red); } .warn { color: var(--amber); }
+.row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+button.btn { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer; font-weight: 600; font-size: 13px; }
+button.btn.secondary { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+button.btn.danger { background: var(--red); }
+button.btn:disabled { opacity: .5; cursor: default; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+.table-wrap { overflow-x: auto; }
+.section { margin-top: 14px; }
+pre.out { white-space: pre-wrap; background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 12px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 520px; overflow: auto; margin: 10px 0 0; }
+input, select, textarea { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: inherit; }
+textarea { width: 100%; min-height: 90px; }
+#chart, #equity { height: 380px; }
+#equity { height: 220px; }
+.chat-box { display: flex; flex-direction: column; height: calc(100vh - 190px); min-height: 400px; }
+.chat-log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 6px 2px; }
+.msg { max-width: 85%; padding: 10px 13px; border-radius: 12px; white-space: pre-wrap; }
+.msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
+.msg.assistant { align-self: flex-start; background: var(--panel2); border: 1px solid var(--border); }
+.chat-input { display: flex; gap: 8px; margin-top: 10px; }
+.chat-input input { flex: 1; }
+.settings-section { margin-bottom: 16px; }
+.settings-section h4 { margin: 0 0 10px; font-size: 14px; }
+.field { display: grid; grid-template-columns: minmax(180px, 320px) 1fr; gap: 10px; align-items: center; padding: 5px 0; border-bottom: 1px dashed var(--border); }
+.field label { color: var(--muted); font-size: 13px; }
+.field input[type=text], .field input[type=number], .field input[type=password], .field select { width: 100%; max-width: 420px; }
+.secret-state { font-size: 12px; margin-left: 8px; }
+.kitem { border-bottom: 1px solid var(--border); padding: 8px 0; }
+.kitem .meta { font-size: 12px; color: var(--muted); }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; background: var(--chip); margin-right: 4px; }
+.step { padding: 10px 0; border-bottom: 1px solid var(--border); }
+.step b { display: block; margin-bottom: 3px; }
+code { background: var(--panel2); padding: 1px 6px; border-radius: 5px; font-size: 12.5px; }
+.toast { position: fixed; bottom: 18px; right: 18px; background: var(--panel); border: 1px solid var(--border); padding: 12px 16px; border-radius: 10px; max-width: 420px; white-space: pre-wrap; box-shadow: 0 6px 24px rgba(0,0,0,.25); display: none; z-index: 20; }
+@media (max-width: 640px) {
+  header { padding: 10px 16px; } main { padding: 14px 16px; }
+  .field { grid-template-columns: 1fr; }
+  .mode-pill { margin-left: 0; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1><span>XRZ</span> Trading Bot</h1>
+  <nav id="nav">
+    <button data-tab="overview" class="active">Übersicht</button>
+    <button data-tab="analysis">Analyse</button>
+    <button data-tab="chat">KI-Chat</button>
+    <button data-tab="knowledge">Wissen</button>
+    <button data-tab="settings">Einstellungen</button>
+    <button data-tab="setup">Einrichtung</button>
+    <button data-tab="log">Protokoll</button>
+  </nav>
+  <div id="modePill" class="mode-pill mode-off">–</div>
+</header>
+
+<main>
+<!-- ÜBERSICHT -->
+<section class="tab active" id="tab-overview">
+  <div class="grid">
+    <div class="card"><h3>Paper-Konto</h3><div class="big" id="paperEq">–</div><div class="muted" id="paperSub"></div></div>
+    <div class="card"><h3>Live-Konto</h3><div class="big" id="liveEq">–</div><div class="muted" id="liveSub">nicht verbunden</div></div>
+    <div class="card"><h3>KI</h3><div id="aiInfo" class="muted">–</div></div>
+    <div class="card"><h3>Telegram</h3><div id="tgInfo" class="muted">–</div></div>
+  </div>
+  <div class="card section">
+    <h3>Steuerung</h3>
+    <div class="row">
+      <button class="btn" onclick="setMode('paper')">▶ Paper-Trading starten</button>
+      <button class="btn secondary" onclick="setMode('pause')">⏸ Pause</button>
+      <button class="btn secondary" onclick="setMode('resume')">⏵ Weiter</button>
+      <button class="btn secondary" onclick="setMode('off')">⏹ Stopp</button>
+      <button class="btn secondary" onclick="requestLive()">💶 Live-Trading …</button>
+      <button class="btn secondary" onclick="scanNow()">🔎 Jetzt scannen</button>
+      <button class="btn danger" onclick="panic()">🚨 Panik: alles schließen</button>
+    </div>
+    <div id="statusNote" class="muted" style="margin-top:8px"></div>
+  </div>
+  <div class="card section">
+    <h3>Offene Positionen</h3>
+    <div class="table-wrap"><table id="posTable"><thead><tr><th>Modus</th><th>Symbol</th><th>Seite</th><th>Einstieg</th><th>Kurs</th><th>Stop</th><th>Ziel</th><th>Ergebnis</th><th>R</th><th></th></tr></thead><tbody></tbody></table></div>
+  </div>
+  <div class="card section">
+    <h3>Signale (letzter Scan)</h3>
+    <div class="table-wrap"><table id="sigTable"><thead><tr><th>Symbol</th><th>Kurs</th><th>24h</th><th>Marktphase</th><th>RSI</th><th>Score</th><th>Empfehlung</th></tr></thead><tbody></tbody></table></div>
+  </div>
+  <div class="card section">
+    <h3>Kontoverlauf (Paper)</h3><div id="eqNote" class="muted"></div><div id="equity"></div>
+  </div>
+  <div class="card section">
+    <h3>Letzte Trades</h3>
+    <div class="table-wrap"><table id="tradeTable"><thead><tr><th>Zeit</th><th>Modus</th><th>Symbol</th><th>Seite</th><th>Einstieg</th><th>Ausstieg</th><th>Ergebnis</th><th>R</th><th>Grund</th></tr></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+<!-- ANALYSE -->
+<section class="tab" id="tab-analysis">
+  <div class="card">
+    <div class="row">
+      <input id="anSymbol" placeholder="Symbol, z. B. BTC/USDT" value="BTC/USDT">
+      <select id="anTf"><option value="">Standard</option><option>15m</option><option>1h</option><option>4h</option><option>1d</option></select>
+      <button class="btn" onclick="analyze()">Analysieren</button>
+      <button class="btn secondary" onclick="deep()">Walk-Forward-Backtest</button>
+      <button class="btn secondary" onclick="openTV()">In TradingView öffnen</button>
+    </div>
+    <div id="chart" class="section"></div>
+    <pre class="out" id="anOut">Wähle ein Symbol und klicke „Analysieren“.</pre>
+  </div>
+</section>
+
+<!-- CHAT -->
+<section class="tab" id="tab-chat">
+  <div class="card chat-box">
+    <div class="row" style="justify-content:space-between"><h3 style="margin:0">Mit XRZ sprechen</h3><button class="btn secondary" onclick="clearChat()">Verlauf leeren</button></div>
+    <div class="chat-log" id="chatLog"></div>
+    <div class="chat-input"><input id="chatIn" placeholder="z. B. Wie sieht der Markt heute aus? / Merk dir: …" onkeydown="if(event.key==='Enter')sendChat()"><button class="btn" id="chatBtn" onclick="sendChat()">Senden</button></div>
+  </div>
+</section>
+
+<!-- WISSEN -->
+<section class="tab" id="tab-knowledge">
+  <div class="grid">
+    <div class="card">
+      <h3>Wissen beibringen</h3>
+      <input id="kTopic" placeholder="Thema (optional)" style="width:100%;margin-bottom:8px">
+      <textarea id="kText" placeholder="Was soll XRZ lernen? Strategien, Regeln, Erfahrungen, Notizen …"></textarea>
+      <div class="row" style="margin-top:8px"><button class="btn" onclick="addKnowledge()">Speichern</button></div>
+    </div>
+    <div class="card">
+      <h3>Webseite / Datei einlesen</h3>
+      <div class="row"><input id="kUrl" placeholder="https://…" style="flex:1"><button class="btn" onclick="addUrl()">Link lernen</button></div>
+      <div class="row section"><input type="file" id="kFile" accept=".pdf,.txt,.md,.html,.csv"><button class="btn" onclick="uploadFile()">Datei lernen</button></div>
+      <p class="muted">PDF, TXT, Markdown, HTML. Per Telegram einfach das Dokument schicken.</p>
+    </div>
+  </div>
+  <div class="card section">
+    <div class="row" style="justify-content:space-between"><h3 id="kCount">Wissensdatenbank</h3>
+      <div class="row"><input id="kSearch" placeholder="Suchen …" onkeydown="if(event.key==='Enter')loadKnowledge()"><button class="btn secondary" onclick="loadKnowledge()">Suchen</button></div></div>
+    <div id="kList"></div>
+  </div>
+</section>
+
+<!-- EINSTELLUNGEN -->
+<section class="tab" id="tab-settings">
+  <div class="card">
+    <h3>API-Keys &amp; Tokens</h3>
+    <p class="muted">Werden <b id="secretBackend">sicher</b> gespeichert und nie angezeigt. Leer lassen = unverändert.</p>
+    <div id="secretFields"></div>
+  </div>
+  <div class="card section">
+    <h3>Einstellungen</h3>
+    <div id="settingsForm"></div>
+    <div class="row section"><button class="btn" onclick="saveSettings()">💾 Speichern</button><span class="muted" id="saveNote"></span></div>
+  </div>
+</section>
+
+<!-- EINRICHTUNG -->
+<section class="tab" id="tab-setup">
+  <div class="card">
+    <h3>In 5 Schritten startklar</h3>
+    <div class="step"><b>1. Lokale KI (Ollama)</b><span id="setupOllama" class="muted">…</span></div>
+    <div class="step"><b>2. Telegram verbinden</b>
+      Bei <code>@BotFather</code> in Telegram <code>/newbot</code> senden, Token unter <i>Einstellungen → API-Keys</i> eintragen.<br>
+      Dann deinem Bot schreiben: <code id="pairCmd">/start ……</code> <span id="setupTg" class="muted"></span></div>
+    <div class="step"><b>3. Optional: Claude/OpenAI-Key</b> für deutlich schlauere Antworten (Einstellungen → API-Keys). <span id="setupKeys" class="muted"></span></div>
+    <div class="step"><b>4. Paper-Trading testen</b> – oben „Paper-Trading starten“ oder in Telegram <code>/paper</code>. Mindestens einige Wochen beobachten.</div>
+    <div class="step"><b>5. Live-Trading (Echtgeld)</b> – Börsen-API-Key <u>ohne Auszahlungsrechte</u> eintragen, unter Einstellungen „Live-Trading freischalten“, dann <code>/live</code> und mit Code bestätigen. Klein anfangen!</div>
+  </div>
+  <div class="card section">
+    <h3>TradingView-Alerts (optional)</h3>
+    <p>1. Unter Einstellungen <i>Webhook aktivieren</i> und eine <i>TradingView-Passphrase</i> setzen, Bot neu starten.<br>
+    2. Den Webhook-Port ins Internet freigeben, z. B. mit Cloudflare Tunnel: <code id="tunnelCmd">cloudflared tunnel --url http://localhost:8766</code><br>
+    3. In TradingView beim Alarm „Webhook-URL“ = <code>https://DEINE-TUNNEL-ADRESSE/webhook/tradingview</code><br>
+    4. Nachricht (JSON): <code>{"passphrase":"DEINE_PASSPHRASE","symbol":"{{ticker}}","action":"buy"}</code> (action: buy / sell / close)<br>
+    Fertiges Pine-Script: <code>tradingview/xrz_signale.pine</code> im Projektordner.</p>
+    <div id="setupWebhook" class="muted"></div>
+  </div>
+  <div class="card section"><h3>System</h3><pre class="out" id="sysInfo"></pre></div>
+</section>
+
+<!-- PROTOKOLL -->
+<section class="tab" id="tab-log">
+  <div class="card"><div class="row" style="justify-content:space-between"><h3>Ereignisse</h3><button class="btn secondary" onclick="loadEvents()">Aktualisieren</button></div>
+  <div class="table-wrap"><table id="evTable"><thead><tr><th>Zeit</th><th>Typ</th><th>Meldung</th></tr></thead><tbody></tbody></table></div></div>
+</section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN = "__XRZ_TOKEN__";
+const $ = (id) => document.getElementById(id);
+let STATUS = null, SETTINGS = null, chart = null, candleSeries = null, eqChart = null, eqSeries = null;
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "Content-Type": "application/json", "X-XRZ-Token": TOKEN, ...(opts.headers || {}) } });
+  let data = null; try { data = await res.json(); } catch (e) {}
+  if (!res.ok) throw new Error((data && (data.detail || data.error)) || res.statusText);
+  return data;
+}
+const post = (p, b = {}) => api(p, { method: "POST", body: JSON.stringify(b) });
+function toast(msg, ms = 5000) { const t = $("toast"); t.textContent = msg; t.style.display = "block"; clearTimeout(t._h); t._h = setTimeout(() => t.style.display = "none", ms); }
+const fmt = (x, d = 2) => (x === null || x === undefined || isNaN(x)) ? "–" : Number(x).toLocaleString("de-DE", { minimumFractionDigits: d, maximumFractionDigits: d });
+const fmtP = (x) => x === null || x === undefined ? "–" : (x >= 1000 ? fmt(x, 0) : x >= 1 ? fmt(x, 2) : fmt(x, 5));
+const cls = (x) => x > 0 ? "pos" : x < 0 ? "neg" : "";
+function td(text, c) { const e = document.createElement("td"); e.textContent = text; if (c) e.className = c; return e; }
+function el(tag, text, c) { const e = document.createElement(tag); if (text !== undefined) e.textContent = text; if (c) e.className = c; return e; }
+
+document.querySelectorAll("#nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("#nav button").forEach(x => x.classList.toggle("active", x === b));
+  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.id === "tab-" + b.dataset.tab));
+  const tab = b.dataset.tab;
+  if (tab === "chat") loadChat(); if (tab === "knowledge") loadKnowledge(); if (tab === "settings") loadSettings();
+  if (tab === "log") loadEvents(); if (tab === "analysis" && !chart) analyze();
+});
+
+// ---------------------------------------------------------------- Übersicht
+async function refresh() {
+  try { STATUS = await api("/api/status"); } catch (e) { $("statusNote").textContent = "Keine Verbindung zum Bot: " + e.message; return; }
+  const s = STATUS;
+  const pill = $("modePill"); pill.textContent = s.mode_word + (s.entries_paused ? " · pausiert" : "") + (s.halted ? " · NOTBREMSE" : "");
+  pill.className = "mode-pill mode-" + s.mode;
+  if (s.paper && s.paper.equity !== undefined) {
+    $("paperEq").textContent = fmt(s.paper.equity);
+    $("paperSub").innerHTML = ""; const sub = $("paperSub");
+    sub.append(el("span", `heute ${fmt(s.paper.day_pnl)} (${fmt(s.paper.day_pnl_pct)}%)`, cls(s.paper.day_pnl)), document.createTextNode(` · gesamt ${fmt(s.paper.total_pnl_pct)}% · ${s.paper.stats.trades} Trades, ${fmt(s.paper.stats.win_rate, 0)}% Treffer`));
+  }
+  if (s.live && s.live.equity !== undefined) { $("liveEq").textContent = fmt(s.live.equity); $("liveSub").textContent = `heute ${fmt(s.live.day_pnl)} · ${s.live.stats.trades} Trades`; }
+  else { $("liveEq").textContent = "–"; $("liveSub").textContent = s.live_unlocked ? "freigeschaltet, nicht verbunden" : "gesperrt (Einstellungen)"; }
+  const ai = s.ai; $("aiInfo").textContent = `${ai.chain}\nOllama: ${ai.ollama_running ? (ai.ollama_model_ready ? "bereit ✅" : "Modell fehlt ⚠️") : "läuft nicht ⚠️"}${ai.last_error ? "\nFehler: " + ai.last_error.slice(0, 140) : ""}`;
+  $("aiInfo").style.whiteSpace = "pre-wrap";
+  const tg = s.telegram; $("tgInfo").textContent = tg.running ? `@${tg.username} läuft ✅` + (tg.paired.length ? ` · ${tg.paired.length} Chat(s) gekoppelt` : ` · Koppeln: /start ${tg.pair_code}`) : (tg.error || "aus");
+  $("statusNote").textContent = (s.halted ? "🛑 " + s.halted + " · " : "") + `Daten: ${s.data_source === "demo" ? "DEMO (künstlich)" : s.exchange} · Zeitrahmen ${s.timeframe} · letzter Scan ${s.last_scan ? new Date(s.last_scan * 1000).toLocaleTimeString("de-DE") : "–"}`;
+  const pb = $("posTable").tBodies[0]; pb.innerHTML = "";
+  if (!s.positions.length) { const r = pb.insertRow(); const c = td("Keine offenen Positionen", "muted"); c.colSpan = 10; r.append(c); }
+  s.positions.forEach(p => {
+    const r = pb.insertRow();
+    r.append(td(p.mode), td(p.symbol), td(p.side, p.side === "long" ? "pos" : "neg"), td(fmtP(p.entry)), td(fmtP(p.price)), td(fmtP(p.stop)), td(fmtP(p.take_profit)),
+      td(`${fmt(p.pnl)} (${fmt(p.pnl_pct)}%)`, cls(p.pnl)), td(fmt(p.r), cls(p.r)));
+    const c = document.createElement("td"); const b = el("button", "Schließen", "btn secondary"); b.onclick = () => closePos(p.symbol); c.append(b); r.append(c);
+  });
+  const an = await api("/api/analyses"); const sb = $("sigTable").tBodies[0]; sb.innerHTML = "";
+  an.forEach(a => { const r = sb.insertRow(); r.append(td(a.symbol), td(fmtP(a.price)), td(fmt(a.change_24h) + "%", cls(a.change_24h)), td(a.regime), td(fmt(a.rsi, 0)), td(fmt(a.score), cls(a.score)), td(a.has_edge ? a.direction_word : "kein Vorteil – kein Handel", a.direction ? cls(a.direction) : "muted")); });
+  if (!an.length) { const r = sb.insertRow(); const c = td("Noch kein Scan – „Jetzt scannen“ klicken", "muted"); c.colSpan = 7; r.append(c); }
+  loadTrades(); loadEquity();
+}
+async function loadTrades() {
+  const tr = await api("/api/trades?limit=30"); const b = $("tradeTable").tBodies[0]; b.innerHTML = "";
+  tr.forEach(t => { const r = b.insertRow(); r.append(td(new Date(t.exit_time * 1000).toLocaleString("de-DE")), td(t.mode), td(t.symbol), td(t.side), td(fmtP(t.entry_price)), td(fmtP(t.exit_price)), td(`${fmt(t.pnl)} (${fmt(t.pnl_pct)}%)`, cls(t.pnl)), td(fmt(t.r_multiple), cls(t.r_multiple)), td(t.exit_reason)); });
+  if (!tr.length) { const r = b.insertRow(); const c = td("Noch keine abgeschlossenen Trades", "muted"); c.colSpan = 9; r.append(c); }
+}
+function chartOpts(h) {
+  const dark = !matchMedia("(prefers-color-scheme: light)").matches;
+  return { autoSize: true, layout: { background: { color: "transparent" }, textColor: dark ? "#c9d1d9" : "#1b2430" },
+    grid: { vertLines: { color: dark ? "#222b36" : "#e6eaf0" }, horzLines: { color: dark ? "#222b36" : "#e6eaf0" } },
+    timeScale: { timeVisible: true, secondsVisible: false }, rightPriceScale: { borderVisible: false } };
+}
+async function loadEquity() {
+  if (!window.LightweightCharts) return;
+  const data = await api("/api/equity?mode=paper");
+  if (!eqChart) { eqChart = LightweightCharts.createChart($("equity"), chartOpts(220)); eqSeries = eqChart.addAreaSeries({ lineColor: "#4f8cff", topColor: "rgba(79,140,255,.35)", bottomColor: "rgba(79,140,255,0)" }); }
+  const seen = new Set(); const pts = [];
+  data.forEach(d => { const t = Math.floor(d.ts); if (!seen.has(t)) { seen.add(t); pts.push({ time: t, value: d.equity }); } });
+  eqSeries.setData(pts); eqChart.timeScale().fitContent();
+  $("eqNote").textContent = pts.length < 2 ? "Noch zu wenige Datenpunkte – der Kontoverlauf wird alle 5 Minuten aufgezeichnet." : "";
+}
+async function setMode(m) { try { toast((await post("/api/mode", { mode: m })).text); refresh(); } catch (e) { toast("Fehler: " + e.message); } }
+async function scanNow() { toast("Scanne alle Märkte …"); try { await post("/api/scan"); refresh(); toast("Scan fertig"); } catch (e) { toast(e.message); } }
+async function panic() { if (!confirm("Wirklich ALLE Positionen sofort schließen und Trading ausschalten?")) return; toast((await post("/api/panic")).text); refresh(); }
+async function closePos(sym) { if (!confirm(sym + " schließen?")) return; toast((await post("/api/close", { symbol: sym })).text); refresh(); }
+async function requestLive() {
+  const r = await post("/api/live/request"); alert(r.text);
+  const m = r.text.match(/bestaetigen (\d{6})/); if (!m) return;
+  const code = prompt("Zum Starten von LIVE-Trading (Echtgeld) den Code eintippen:");
+  if (code) { toast((await post("/api/live/confirm", { code })).text, 9000); refresh(); }
+}
+
+// ------------------------------------------------------------------ Analyse
+async function analyze() {
+  const symbol = $("anSymbol").value.trim(), timeframe = $("anTf").value; if (!symbol) return;
+  $("anOut").textContent = "Analysiere " + symbol + " …";
+  try { const r = await post("/api/analyze", { symbol, timeframe }); $("anOut").textContent = r.text; } catch (e) { $("anOut").textContent = "Fehler: " + e.message; }
+  try {
+    const c = await api(`/api/candles?symbol=${encodeURIComponent(symbol)}&timeframe=${timeframe}&limit=400`);
+    if (!window.LightweightCharts) return;
+    if (!chart) { chart = LightweightCharts.createChart($("chart"), chartOpts(380)); candleSeries = chart.addCandlestickSeries({ upColor: "#2ecc71", downColor: "#ff5c5c", borderVisible: false, wickUpColor: "#2ecc71", wickDownColor: "#ff5c5c" }); }
+    candleSeries.setData(c.candles);
+    const first = c.candles.length ? c.candles[0].time : 0, step = c.candles.length > 1 ? c.candles[1].time - c.candles[0].time : 3600;
+    const markers = c.markers.filter(m => m.time >= first).map(m => ({ time: Math.floor(m.time / step) * step, position: m.kind === "entry" ? (m.side === "long" ? "belowBar" : "aboveBar") : (m.side === "long" ? "aboveBar" : "belowBar"),
+      color: m.kind === "entry" ? "#4f8cff" : (m.pnl > 0 ? "#2ecc71" : "#ff5c5c"), shape: m.kind === "entry" ? (m.side === "long" ? "arrowUp" : "arrowDown") : "circle", text: m.kind === "entry" ? m.side : fmt(m.pnl) })).sort((a, b) => a.time - b.time);
+    candleSeries.setMarkers(markers); chart.timeScale().fitContent();
+  } catch (e) { console.warn(e); }
+}
+async function deep() { const symbol = $("anSymbol").value.trim(); $("anOut").textContent = "Backtest läuft (kann einige Sekunden dauern) …"; try { $("anOut").textContent = (await post("/api/deep", { symbol })).text; } catch (e) { $("anOut").textContent = e.message; } }
+async function openTV() { try { toast((await post("/api/chart/open", { symbol: $("anSymbol").value })).text); } catch (e) { toast(e.message); } }
+
+// --------------------------------------------------------------------- Chat
+function addMsg(role, text) { const d = el("div", text, "msg " + role); $("chatLog").append(d); $("chatLog").scrollTop = 1e9; return d; }
+async function loadChat() { $("chatLog").innerHTML = ""; (await api("/api/chat/history")).forEach(m => addMsg(m.role, m.content)); if (!$("chatLog").children.length) addMsg("assistant", "Hi! Ich bin XRZ. Frag mich zu Märkten, deinen Positionen oder bring mir etwas bei."); }
+async function sendChat() {
+  const t = $("chatIn").value.trim(); if (!t) return; $("chatIn").value = ""; addMsg("user", t);
+  const w = addMsg("assistant", "denkt nach …"); $("chatBtn").disabled = true;
+  try { w.textContent = (await post("/api/chat", { message: t })).reply; } catch (e) { w.textContent = "Fehler: " + e.message; }
+  $("chatBtn").disabled = false; $("chatLog").scrollTop = 1e9;
+}
+async function clearChat() { await post("/api/chat/clear"); loadChat(); }
+
+// ------------------------------------------------------------------- Wissen
+async function loadKnowledge() {
+  const q = $("kSearch").value.trim(); const r = await api("/api/knowledge?limit=60" + (q ? "&q=" + encodeURIComponent(q) : ""));
+  $("kCount").textContent = `Wissensdatenbank (${r.count} Einträge)`; const list = $("kList"); list.innerHTML = "";
+  r.items.forEach(k => {
+    const d = el("div", undefined, "kitem"); const m = el("div", undefined, "meta");
+    m.append(el("span", k.topic || "–", "badge"), el("span", k.source || "", "badge"), document.createTextNode(k.ts ? new Date(k.ts * 1000).toLocaleString("de-DE") : ""));
+    const del = el("button", "löschen", "btn secondary"); del.style.marginLeft = "8px"; del.style.padding = "2px 8px"; del.onclick = async () => { await api("/api/knowledge/" + k.id, { method: "DELETE" }); loadKnowledge(); };
+    m.append(del); d.append(m, el("div", k.text)); list.append(d);
+  });
+}
+async function addKnowledge() { const text = $("kText").value.trim(); if (!text) return; const r = await post("/api/knowledge", { text, topic: $("kTopic").value.trim() }); toast(`Gelernt (${r.added} Abschnitt)`); $("kText").value = ""; loadKnowledge(); }
+async function addUrl() { const url = $("kUrl").value.trim(); if (!url) return; toast("Lese Webseite …"); try { const r = await post("/api/knowledge/url", { url }); toast(`${r.added} Abschnitte gelernt`); loadKnowledge(); } catch (e) { toast(e.message); } }
+async function uploadFile() {
+  const f = $("kFile").files[0]; if (!f) return; toast("Lese " + f.name + " …");
+  const buf = new Uint8Array(await f.arrayBuffer()); let bin = ""; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+  try { const r = await post("/api/knowledge/upload", { filename: f.name, data_b64: btoa(bin) }); toast(`${r.added} Abschnitte gelernt`); loadKnowledge(); } catch (e) { toast(e.message); }
+}
+
+// ------------------------------------------------------------ Einstellungen
+const LABELS = {
+  "live_trading_unlocked": "⚠️ Live-Trading freischalten (Echtgeld möglich)",
+  "trading.watchlist": "Watchlist (Komma-getrennt, z. B. BTC/USDT, ETH/USDT, AAPL)", "trading.timeframe": "Zeitrahmen", "trading.higher_timeframe": "Übergeordneter Zeitrahmen",
+  "trading.scan_interval_minutes": "Scan-Intervall (Minuten)", "trading.entry_threshold": "Einstiegsschwelle Score (0–1)", "trading.exit_threshold": "Ausstiegsschwelle Score",
+  "trading.min_active_strategies": "Mind. übereinstimmende Strategien", "trading.allow_short": "Shorts erlauben (nur Paper)", "trading.use_ai_review": "KI prüft jeden Trade",
+  "trading.higher_tf_filter": "Übergeordneten Trend beachten",
+  "risk.risk_per_trade_pct": "Risiko pro Trade (% vom Konto)", "risk.max_position_pct": "Max. Positionsgröße (% vom Konto)", "risk.max_open_positions": "Max. offene Positionen",
+  "risk.max_daily_loss_pct": "Tagesverlust-Limit (%)", "risk.max_drawdown_pct": "Notbremse bei Drawdown (%)", "risk.stop_atr_mult": "Stop-Loss (× ATR)", "risk.take_profit_r": "Take-Profit (× Risiko)",
+  "risk.max_live_order_usd": "Max. Betrag pro LIVE-Order", "risk.fee_pct": "Gebühr pro Order (%)",
+  "paper.starting_balance": "Paper-Startkapital", "exchange.name": "Börse (ccxt-Name: binance, kraken, bybit, okx, coinbase …)", "exchange.sandbox": "Börsen-Testnet benutzen",
+  "exchange.data_source": "Datenquelle", "ai.provider": "KI-Anbieter (auto = Cloud wenn Key, sonst lokal)", "ai.ollama_model": "Lokales Modell (Ollama)", "ai.ollama_vision_model": "Lokales Bild-Modell (optional)",
+  "ai.anthropic_model": "Claude-Modell", "ai.anthropic_effort": "Claude Denk-Aufwand", "ai.openai_model": "OpenAI-Modell", "ai.openai_base_url": "OpenAI-kompatible URL",
+  "telegram.enabled": "Telegram aktiv", "telegram.notify_trades": "Trade-Meldungen", "telegram.notify_signals": "Signal-Meldungen", "telegram.daily_report_time": "Tagesbericht um (HH:MM)",
+  "telegram.allowed_chat_ids": "Gekoppelte Chat-IDs", "web.webhook_enabled": "TradingView-Webhook aktiv (Neustart nötig)", "web.webhook_port": "Webhook-Port",
+  "trading.history_candles": "Historie für Backtests (Kerzen)", "trading.manage_interval_seconds": "Positions-Prüfung alle (Sekunden)",
+  "trading.deep_analysis_hours": "Backtest-Aktualisierung alle (Stunden)", "trading.max_extension_atr": "Max. Abstand zur EMA20 (× ATR)",
+  "trading.tradingview_signal_weight": "Gewicht eines TradingView-Signals", "trading.tradingview_signal_minutes": "TradingView-Signal gültig (Minuten)",
+  "risk.trailing_atr_mult": "Trailing-Stop (× ATR)", "risk.trailing_activate_r": "Trailing-Stop ab Gewinn (R)", "risk.breakeven_at_r": "Stop auf Einstand ab (R)",
+  "risk.cooldown_minutes_after_loss": "Pause im Markt nach Verlust (Minuten)", "risk.slippage_pct": "Slippage (%)", "risk.min_order_usd": "Mindest-Ordergröße",
+  "exchange.exchange_side_stops": "Stop-Loss zusätzlich direkt an der Börse (live)", "ai.ollama_url": "Ollama-Adresse", "ai.ollama_embed_model": "Embedding-Modell (Wissenssuche)",
+  "ai.ollama_think": "Lokale KI: Denkmodus (langsamer)", "ai.ollama_num_ctx": "Lokale KI: Kontextgröße", "ai.temperature": "Kreativität (0–1)",
+  "ai.chat_history_messages": "Chat-Gedächtnis (Nachrichten)", "ai.reflect_on_trades": "Aus jedem Trade eine Lektion lernen",
+  "web.host": "Dashboard-Adresse", "web.port": "Dashboard-Port", "web.open_browser_on_start": "Dashboard beim Start öffnen",
+  "tradingview.chart_load_seconds": "Wartezeit Chart-Laden (Sekunden)", "mac.automation_enabled": "Mac-Steuerung erlauben",
+  "mac.notifications": "Mac-Mitteilungen", "mac.speak_trades": "Trades ansagen (Sprachausgabe)",
+  "tradingview.alert_mode": "TradingView-Alerts: signal = Teil der Entscheidung, execute = direkt handeln", "tradingview.open_with": "TradingView öffnen mit", "tradingview.chart_exchange_prefix": "TradingView-Börsenpräfix",
+};
+const ENUMS = { "ai.provider": ["auto", "ollama", "anthropic", "openai"], "ai.anthropic_effort": ["low", "medium", "high", "xhigh", "max"], "exchange.data_source": ["exchange", "demo"],
+  "tradingview.alert_mode": ["signal", "execute"], "tradingview.open_with": ["browser", "app"], "trading.timeframe": ["5m", "15m", "30m", "1h", "2h", "4h", "1d"], "trading.higher_timeframe": ["1h", "4h", "1d", "1w"] };
+const SECTION_NAMES = { trading: "Trading", risk: "Risiko-Management", paper: "Paper-Trading", exchange: "Börse", ai: "KI", telegram: "Telegram", web: "Dashboard & Webhook", tradingview: "TradingView", mac: "Mac-Steuerung" };
+async function loadSettings() {
+  SETTINGS = await api("/api/settings"); $("secretBackend").textContent = STATUS ? STATUS.secrets_backend : "sicher";
+  const sf = $("secretFields"); sf.innerHTML = "";
+  Object.entries(SETTINGS.secrets).forEach(([k, v]) => {
+    const f = el("div", undefined, "field"); f.append(el("label", v.label));
+    const w = el("div"); const i = document.createElement("input"); i.type = "password"; i.dataset.secret = k; i.placeholder = v.set ? "gesetzt – neu eingeben zum Ändern" : "nicht gesetzt"; i.autocomplete = "off";
+    w.append(i, el("span", v.set ? "✅ " + v.preview : "–", "secret-state")); f.append(w); sf.append(f);
+  });
+  const form = $("settingsForm"); form.innerHTML = ""; const s = SETTINGS.settings;
+  const top = el("div", undefined, "settings-section"); top.append(el("h4", "Sicherheit")); top.append(fieldFor("live_trading_unlocked", s.live_trading_unlocked)); form.append(top);
+  Object.entries(s).forEach(([sec, obj]) => {
+    if (typeof obj !== "object" || obj === null) return;
+    const d = el("div", undefined, "settings-section"); d.append(el("h4", SECTION_NAMES[sec] || sec));
+    Object.entries(obj).forEach(([k, v]) => { if (k === "personality") return; d.append(fieldFor(sec + "." + k, v)); });
+    form.append(d);
+  });
+}
+function fieldFor(path, v) {
+  const f = el("div", undefined, "field"); f.append(el("label", LABELS[path] || path)); let i;
+  if (ENUMS[path]) { i = document.createElement("select"); ENUMS[path].forEach(o => { const op = el("option", o); op.value = o; if (o === v) op.selected = true; i.append(op); }); }
+  else if (typeof v === "boolean") { i = document.createElement("input"); i.type = "checkbox"; i.checked = v; }
+  else if (typeof v === "number") { i = document.createElement("input"); i.type = "number"; i.step = "any"; i.value = v; }
+  else if (Array.isArray(v)) { i = document.createElement("input"); i.type = "text"; i.value = v.join(", "); i.dataset.list = "1"; }
+  else { i = document.createElement("input"); i.type = "text"; i.value = v ?? ""; }
+  i.dataset.path = path; f.append(i); return f;
+}
+async function saveSettings() {
+  const out = {}; const secrets = {};
+  document.querySelectorAll("#settingsForm [data-path]").forEach(i => {
+    let v; if (i.type === "checkbox") v = i.checked; else if (i.type === "number") v = Number(i.value);
+    else if (i.dataset.list) { v = i.value.split(",").map(x => x.trim()).filter(Boolean); if (i.dataset.path.endsWith("chat_ids")) v = v.map(Number); } else v = i.value;
+    const parts = i.dataset.path.split("."); if (parts.length === 1) out[parts[0]] = v; else { out[parts[0]] = out[parts[0]] || {}; out[parts[0]][parts[1]] = v; }
+  });
+  document.querySelectorAll("[data-secret]").forEach(i => { if (i.value.trim()) secrets[i.dataset.secret] = i.value.trim(); });
+  if (out.live_trading_unlocked && SETTINGS && !SETTINGS.settings.live_trading_unlocked && !confirm("Live-Trading mit ECHTGELD freischalten? Verluste sind möglich. (Gestartet wird es trotzdem erst mit /live + Code.)")) out.live_trading_unlocked = false;
+  try { const r = await post("/api/settings", { settings: out, secrets }); $("saveNote").textContent = "Gespeichert ✅ " + (r.notes || []).join(" · "); toast("Einstellungen gespeichert"); loadSettings(); refresh(); }
+  catch (e) { $("saveNote").textContent = "Fehler: " + e.message; }
+}
+
+// ----------------------------------------------------------- Einrichtung/Log
+async function loadSetup() {
+  if (!STATUS) return; const s = STATUS, ai = s.ai;
+  $("setupOllama").textContent = ai.ollama_running ? (ai.ollama_model_ready ? " ✅ läuft, Modell bereit" : " ⚠️ läuft, aber Modell fehlt – im Terminal: ollama pull " + (SETTINGS ? SETTINGS.settings.ai.ollama_model : "qwen3:8b")) : " ⚠️ nicht gestartet – Ollama-App öffnen (wird von install_mac.sh installiert)";
+  $("pairCmd").textContent = "/start " + s.telegram.pair_code;
+  $("setupTg").textContent = s.telegram.running ? (s.telegram.paired.length ? " ✅ gekoppelt" : ` – Bot @${s.telegram.username} läuft, noch nicht gekoppelt`) : " – " + (s.telegram.error || "aus");
+  $("setupKeys").textContent = ai.anthropic_key ? "✅ Claude aktiv" : ai.openai_key ? "✅ OpenAI aktiv" : "(aktuell nur lokale KI)";
+  $("tunnelCmd").textContent = `cloudflared tunnel --url http://localhost:${s.webhook.port}`;
+  $("setupWebhook").textContent = `Webhook: ${s.webhook.enabled ? "aktiv auf Port " + s.webhook.port : "aus"} · Passphrase: ${s.webhook.passphrase_set ? "gesetzt" : "fehlt"}`;
+  $("sysInfo").textContent = `Version ${s.version} · Daten: ${s.data_dir}\nGeheimnisse: ${s.secrets_backend}\nPlattform: ${JSON.stringify(s.mac)}\nWissen: ${s.knowledge_count} Einträge`;
+}
+async function loadEvents() {
+  const ev = await api("/api/events?limit=200"); const b = $("evTable").tBodies[0]; b.innerHTML = "";
+  ev.forEach(e => { const r = b.insertRow(); const m = td(e.message); m.style.whiteSpace = "pre-wrap"; r.append(td(new Date(e.ts * 1000).toLocaleString("de-DE")), td(e.kind || e.level, e.level === "ERROR" ? "neg" : e.level === "WARN" ? "warn" : ""), m); });
+}
+async function loop() { await refresh(); loadSetup(); }
+loop(); setInterval(loop, 15000);
+</script>
+</body>
+</html>
