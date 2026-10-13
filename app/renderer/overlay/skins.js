@@ -22,7 +22,7 @@ const HOLO = [72, 228, 255];
 const WARN_AMBER = [255, 181, 71];
 const WARN_RED = [255, 77, 94];
 
-export const DEFAULT_SKIN = 'nebula';
+export const DEFAULT_SKIN = 'mensch';
 export const DEFAULT_ACCENT = '#7c5cff';
 /** Canvas-Kantenlänge relativ zum Avatar-Durchmesser (Platz für Glow und Ringe). */
 export const CANVAS_SCALE = 1.5;
@@ -32,6 +32,7 @@ export const STATE_KEYS = Object.freeze(['idle', 'listening', 'thinking', 'speak
 /** Skin-Liste für Galerie und Einstellungen. */
 export const SKINS = Object.freeze(
   [
+    { id: 'mensch', name: 'Mensch', description: 'Kleiner animierter Mensch mit Headset – winkt, redet mit Händen, lauscht und grübelt.' },
     { id: 'nebula', name: 'Nebula', description: 'Wirbelnde Energiekugel in Violett und Cyan mit sanften Partikeln.' },
     { id: 'hologramm', name: 'Hologramm', description: 'Rotierende Drahtgitter-Kugel in Cyan mit Scanlines.' },
     { id: 'neon', name: 'Neon', description: 'Leuchtender Neonring mit Equalizer, der beim Sprechen tanzt.' },
@@ -41,7 +42,7 @@ export const SKINS = Object.freeze(
   ].map((s) => Object.freeze(s)),
 );
 
-const ALIASES = { hologram: 'hologramm', glass: 'glas', robot: 'roboter', custom: 'eigenes', bild: 'eigenes' };
+const ALIASES = { human: 'mensch', person: 'mensch', figur: 'mensch', hologram: 'hologramm', glass: 'glas', robot: 'roboter', custom: 'eigenes', bild: 'eigenes' };
 
 /**
  * Skin-ID normalisieren (unbekannt → Standard-Skin).
@@ -903,8 +904,335 @@ function eigenes(ctx, t, size, v, level, accent, extra) {
   ctx.restore();
 }
 
+// ---------------------------------------------------------------- Mensch (kleine animierte Figur)
+
+const SKIN_TONE = [241, 199, 164];
+const HAIR = [52, 36, 30];
+const PANTS = [34, 38, 58];
+const SHOE = [236, 238, 246];
+
+/** Zwei-Gelenk-IK: Ellbogen zwischen Schulter s und Ziel tg (Ellbogen nach außen, Seite side ±1). */
+function elbowFor(sx, sy, tx, ty, L1, L2, side) {
+  let dx = tx - sx;
+  let dy = ty - sy;
+  let d = Math.hypot(dx, dy) || 1e-6;
+  const maxD = (L1 + L2) * 0.999;
+  const minD = Math.abs(L1 - L2) + 1e-3;
+  if (d > maxD || d < minD) {
+    const k = clamp(d, minD, maxD) / d;
+    dx *= k;
+    dy *= k;
+    d = Math.hypot(dx, dy);
+  }
+  const base = Math.atan2(dy, dx);
+  const off = Math.acos(clamp((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d), -1, 1));
+  const a1 = base + off;
+  const a2 = base - off;
+  const e1 = [sx + Math.cos(a1) * L1, sy + Math.sin(a1) * L1];
+  const e2 = [sx + Math.cos(a2) * L1, sy + Math.sin(a2) * L1];
+  const score = (e) => side * e[0] + 0.35 * e[1];
+  const e = score(e1) >= score(e2) ? e1 : e2;
+  return { ex: e[0], ey: e[1], hx: sx + dx, hy: sy + dy };
+}
+
+function limb(ctx, pts, width, col) {
+  ctx.strokeStyle = col;
+  ctx.lineWidth = width;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+  ctx.moveTo(pts[0], pts[1]);
+  for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]);
+  ctx.stroke();
+}
+
+/** Mensch: kleine, stehende Figur mit Headset – winkt, gestikuliert beim Sprechen, lauscht, grübelt. */
+function mensch(ctx, t, size, v, level, accent, extra) {
+  const P = makePalette(accent, v);
+  const R = size / 2;
+  const w = v.w;
+  const lv = clamp(level);
+  const reduced = !!extra.reduced;
+  const sleepy = clamp(w.off + w.error + w.disconnected);
+  const awake = 1 - sleepy;
+  const speak = w.speaking;
+  const hover = clamp(v.hover) * awake * (1 - w.thinking) * (1 - w.listening);
+  const mot = reduced ? 0.25 : 1;
+  const skin = P.tone(SKIN_TONE);
+  const hair = P.tone(HAIR);
+  const pants = P.tone(mixRgb(PANTS, P.raw, 0.12));
+  const shirt = P.accent;
+  const shirtDark = mixRgb(P.accent, P.ink, 0.35);
+
+  // Atmen, leichtes Wippen, Gewichtsverlagerung
+  const breath = Math.sin(t * 1.6) * 0.5 + 0.5;
+  const bob = (Math.sin(t * 1.6) * R * 0.012 + speak * lv * R * 0.02 * Math.sin(t * 11)) * mot * awake + sleepy * R * 0.03;
+  const sway = Math.sin(t * 0.55) * R * 0.025 * mot * awake;
+
+  // Boden-Schatten + Aura
+  glow(ctx, 0, -R * 0.1, R * 0.2, R * 1.35, P.accent, 0.16 + 0.14 * speak * lv + 0.1 * w.listening + 0.06 * v.hover);
+  ctx.fillStyle = rgba(P.ink, 0.45);
+  ctx.beginPath();
+  ctx.ellipse(sway * 0.3, R * 1.36, R * 0.42, R * 0.07, 0, 0, TAU);
+  ctx.fill();
+
+  ctx.save();
+  ctx.translate(sway, bob);
+
+  // Beine + Schuhe
+  const hipY = R * 0.46;
+  const footY = R * 1.28;
+  const legW = R * 0.19;
+  for (const s of [-1, 1]) {
+    const hx = s * R * 0.13;
+    const fx = s * R * 0.16 - sway * 0.6;
+    limb(ctx, [hx, hipY, hx + (fx - hx) * 0.5 + s * R * 0.01, (hipY + footY) / 2, fx, footY - sway * 0], legW, rgba(pants, 1));
+    ctx.fillStyle = rgba(SHOE, 1);
+    ctx.beginPath();
+    ctx.ellipse(fx + s * R * 0.04, footY + R * 0.04 - bob, R * 0.13, R * 0.065, 0, 0, TAU);
+    ctx.fill();
+  }
+
+  // Oberkörper (Hoodie in Akzentfarbe)
+  const shY = -R * 0.36;
+  const tw = R * 0.82 * (1 + 0.012 * breath);
+  ctx.save();
+  ctx.translate(0, -breath * R * 0.01);
+  rrect(ctx, -tw / 2, shY, tw, hipY - shY + R * 0.08, R * 0.22);
+  const tg = ctx.createLinearGradient(-tw / 2, shY, tw / 2, hipY);
+  tg.addColorStop(0, rgba(mixRgb(shirt, P.white, 0.18), 1));
+  tg.addColorStop(1, rgba(shirtDark, 1));
+  ctx.fillStyle = tg;
+  ctx.fill();
+  // Reißverschluss + Taschen + Logo
+  ctx.strokeStyle = rgba(P.white, 0.35);
+  ctx.lineWidth = Math.max(1, R * 0.018);
+  ctx.beginPath();
+  ctx.moveTo(0, shY + R * 0.12);
+  ctx.lineTo(0, hipY + R * 0.06);
+  ctx.stroke();
+  ctx.strokeStyle = rgba(P.ink, 0.25);
+  ctx.beginPath();
+  ctx.moveTo(-tw * 0.36, hipY - R * 0.12);
+  ctx.quadraticCurveTo(-tw * 0.18, hipY - R * 0.2, -R * 0.03, hipY - R * 0.12);
+  ctx.moveTo(tw * 0.36, hipY - R * 0.12);
+  ctx.quadraticCurveTo(tw * 0.18, hipY - R * 0.2, R * 0.03, hipY - R * 0.12);
+  ctx.stroke();
+  ctx.fillStyle = rgba(P.white, 0.85);
+  ctx.font = `700 ${Math.max(6, R * 0.13)}px -apple-system, "SF Pro Text", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('V', -tw * 0.22, shY + R * 0.2);
+  ctx.restore();
+
+  // Hals + Kopf
+  const tilt = (0.1 * w.listening - 0.07 * w.thinking + 0.2 * sleepy + Math.sin(t * 0.8) * 0.03 * mot * awake
+    + speak * lv * 0.05 * Math.sin(t * 5)) ;
+  const headY = -R * 0.84;
+  const hr = R * 0.34;
+  ctx.fillStyle = rgba(mixRgb(skin, P.ink, 0.12), 1);
+  rrect(ctx, -R * 0.08, shY - R * 0.16, R * 0.16, R * 0.22, R * 0.06);
+  ctx.fill();
+  // Kapuzen-Kragen
+  ctx.fillStyle = rgba(shirtDark, 1);
+  ctx.beginPath();
+  ctx.ellipse(0, shY + R * 0.02, R * 0.24, R * 0.07, 0, 0, TAU);
+  ctx.fill();
+
+  ctx.save();
+  ctx.translate(0, headY + R * 0.3);
+  ctx.rotate(tilt);
+  ctx.translate(0, -R * 0.3);
+
+  // Haare hinten
+  ctx.fillStyle = rgba(hair, 1);
+  ctx.beginPath();
+  ctx.ellipse(0, -R * 0.04, hr * 1.04, hr * 1.04, 0, Math.PI * 0.95, Math.PI * 2.05);
+  ctx.fill();
+  // Ohren
+  for (const s of [-1, 1]) {
+    ctx.fillStyle = rgba(mixRgb(skin, P.ink, 0.06), 1);
+    circle(ctx, s * hr * 0.95, R * 0.03, R * 0.07);
+    ctx.fill();
+  }
+  // Gesicht
+  const fg = ctx.createRadialGradient(-hr * 0.3, -hr * 0.3, hr * 0.1, 0, 0, hr * 1.1);
+  fg.addColorStop(0, rgba(mixRgb(skin, P.white, 0.18), 1));
+  fg.addColorStop(1, rgba(mixRgb(skin, P.ink, 0.1), 1));
+  ctx.fillStyle = fg;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, hr * 0.92, hr, 0, 0, TAU);
+  ctx.fill();
+  // Haare vorne (Seitenscheitel)
+  ctx.fillStyle = rgba(hair, 1);
+  ctx.beginPath();
+  ctx.moveTo(-hr * 0.98, -hr * 0.05);
+  ctx.quadraticCurveTo(-hr * 1.02, -hr * 1.08, 0, -hr * 1.1);
+  ctx.quadraticCurveTo(hr * 1.02, -hr * 1.06, hr * 0.97, -hr * 0.12);
+  ctx.quadraticCurveTo(hr * 0.7, -hr * 0.55, hr * 0.05, -hr * 0.52);
+  ctx.quadraticCurveTo(-hr * 0.45, -hr * 0.5, -hr * 0.62, -hr * 0.2);
+  ctx.quadraticCurveTo(-hr * 0.8, -hr * 0.05, -hr * 0.98, -hr * 0.05);
+  ctx.fill();
+  ctx.fillStyle = rgba(P.white, 0.12);
+  ctx.beginPath();
+  ctx.ellipse(-hr * 0.25, -hr * 0.82, hr * 0.32, hr * 0.08, -0.2, 0, TAU);
+  ctx.fill();
+
+  // Augen
+  const blink = reduced ? 0 : blinkAmount(t);
+  const open = (1 - blink) * (1 - 0.92 * sleepy) * (1 - 0.35 * w.muted) * (1 + 0.15 * w.listening);
+  const lookX = (saccade(t, 2.3, 2.8) * 0.06 * (w.idle + speak) + 0.05 * w.thinking + 0.04 * w.listening) * R;
+  const lookY = (saccade(t, 5.2, 3.3) * 0.03 * w.idle - 0.05 * w.thinking) * R;
+  const eyeY = hr * 0.02;
+  for (const s of [-1, 1]) {
+    const ex = s * hr * 0.36 + lookX * 0.5;
+    const ey = eyeY + lookY * 0.5;
+    const eh = Math.max(R * 0.012, R * 0.06 * open);
+    ctx.fillStyle = rgba(P.tone([28, 22, 30]), 1);
+    ctx.beginPath();
+    ctx.ellipse(ex, ey, R * 0.042, eh, 0, 0, TAU);
+    ctx.fill();
+    if (eh > R * 0.03) {
+      ctx.fillStyle = rgba(P.white, 0.9);
+      circle(ctx, ex - R * 0.012, ey - eh * 0.35, R * 0.013);
+      ctx.fill();
+    }
+    // Augenbrauen
+    const raise = 0.05 * w.listening + 0.03 * speak * lv + (s > 0 ? 0.05 : -0.01) * w.thinking;
+    ctx.strokeStyle = rgba(hair, 0.95);
+    ctx.lineWidth = Math.max(1, R * 0.028);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    const by = ey - R * 0.1 - raise * R;
+    ctx.moveTo(ex - R * 0.05, by + s * 0.0 + R * 0.008);
+    ctx.quadraticCurveTo(ex, by - R * 0.018, ex + R * 0.05, by + R * 0.008 * (w.thinking > 0.3 ? -s : 1));
+    ctx.stroke();
+  }
+  // Wangen
+  const cheek = 0.28 * clamp(w.idle + speak + w.listening + v.hover * 0.5) * awake;
+  if (cheek > 0.01) {
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = rgba([255, 120, 130], cheek);
+      ctx.beginPath();
+      ctx.ellipse(s * hr * 0.55, hr * 0.3, R * 0.06, R * 0.032, 0, 0, TAU);
+      ctx.fill();
+    }
+  }
+  // Nase
+  ctx.strokeStyle = rgba(mixRgb(skin, P.ink, 0.3), 0.7);
+  ctx.lineWidth = Math.max(1, R * 0.018);
+  ctx.beginPath();
+  ctx.arc(lookX * 0.3, hr * 0.2, R * 0.03, 0.1 * Math.PI, 0.9 * Math.PI);
+  ctx.stroke();
+  // Mund
+  const my = hr * 0.5;
+  const talk = speak * (reduced ? lv * 0.6 : lv * (0.6 + 0.4 * Math.abs(Math.sin(t * 17))));
+  const smile = clamp(w.idle + w.listening * 0.8 + v.hover * 0.6 + w.muted * 0.3) * (1 - talk);
+  ctx.lineCap = 'round';
+  if (talk > 0.02 || speak > 0.3) {
+    const mh = R * (0.02 + 0.11 * talk);
+    const mw = R * (0.1 + 0.04 * talk);
+    ctx.fillStyle = rgba(P.tone([90, 30, 40]), 1);
+    ctx.beginPath();
+    ctx.ellipse(0, my + mh * 0.3, mw / 2, mh / 2 + R * 0.008, 0, 0, TAU);
+    ctx.fill();
+    if (mh > R * 0.05) {
+      ctx.fillStyle = rgba(P.tone([235, 110, 120]), 0.9);
+      ctx.beginPath();
+      ctx.ellipse(0, my + mh * 0.62, mw * 0.3, mh * 0.18, 0, 0, TAU);
+      ctx.fill();
+    }
+  } else if (w.thinking > 0.4) {
+    ctx.strokeStyle = rgba(P.tone([120, 60, 60]), 0.9);
+    ctx.lineWidth = Math.max(1, R * 0.024);
+    ctx.beginPath();
+    ctx.moveTo(-R * 0.02, my + R * 0.01);
+    ctx.lineTo(R * 0.07, my - R * 0.012);
+    ctx.stroke();
+  } else {
+    ctx.strokeStyle = rgba(P.tone([130, 60, 60]), 0.95);
+    ctx.lineWidth = Math.max(1, R * 0.026);
+    ctx.beginPath();
+    const sm = 0.2 + 0.6 * smile * awake;
+    ctx.arc(0, my - R * 0.06 * sm, R * 0.08, Math.PI * (0.5 - 0.32 * sm), Math.PI * (0.5 + 0.32 * sm));
+    ctx.stroke();
+  }
+
+  // Headset (Bügel, Ohrmuschel, Mikrofon)
+  ctx.strokeStyle = rgba(P.tone([40, 44, 64]), 1);
+  ctx.lineWidth = Math.max(1.5, R * 0.04);
+  ctx.beginPath();
+  ctx.arc(0, -R * 0.02, hr * 1.08, Math.PI * 1.08, Math.PI * 1.92);
+  ctx.stroke();
+  for (const s of [-1, 1]) {
+    rrect(ctx, s * hr * 1.0 - R * 0.05, -R * 0.06, R * 0.1, R * 0.17, R * 0.05);
+    ctx.fillStyle = rgba(mixRgb(P.accent, P.ink, 0.2), 1);
+    ctx.fill();
+  }
+  ctx.strokeStyle = rgba(P.tone([40, 44, 64]), 1);
+  ctx.lineWidth = Math.max(1, R * 0.022);
+  ctx.beginPath();
+  ctx.moveTo(hr * 1.0, R * 0.08);
+  ctx.quadraticCurveTo(hr * 0.9, my + R * 0.04, R * 0.12, my + R * 0.02);
+  ctx.stroke();
+  const micGlow = 0.25 + 0.75 * clamp(w.listening * (0.5 + lv) + speak * 0.3);
+  glow(ctx, R * 0.11, my + R * 0.02, 0, R * 0.1, P.cool, 0.6 * micGlow);
+  ctx.fillStyle = rgba(mixRgb(P.cool, P.white, 0.3), 0.6 + 0.4 * micGlow);
+  circle(ctx, R * 0.11, my + R * 0.02, R * 0.025);
+  ctx.fill();
+
+  // Schlafend: kleines „z“
+  if (sleepy > 0.3 && !reduced) {
+    const zp = fract(t * 0.35);
+    ctx.fillStyle = rgba(P.white, sleepy * (1 - zp) * 0.8);
+    ctx.font = `700 ${Math.max(6, R * (0.1 + 0.08 * zp))}px -apple-system, sans-serif`;
+    ctx.fillText('z', hr * (0.9 + 0.5 * zp), -hr * (0.9 + 0.9 * zp));
+  }
+  ctx.restore();
+
+  // Arme (zuletzt, damit Hände vor Gesicht/Körper liegen)
+  const L1 = R * 0.36;
+  const L2 = R * 0.34;
+  const armW = R * 0.15;
+  const headCx = Math.sin(tilt) * R * 0.3;
+  for (const s of [-1, 1]) {
+    const sx = s * (tw / 2 - R * 0.06);
+    const sy = shY + R * 0.1;
+    const swing = Math.sin(t * 1.1 + (s > 0 ? 0 : 1.7)) * R * 0.03 * mot * awake;
+    // Zielposition der Hand je Zustand, nach Gewicht überblendet
+    let tx = s * R * 0.5 + swing;
+    let ty = R * 0.4 + sleepy * R * 0.04;
+    const acc = (wgt, x, y) => {
+      if (wgt <= 0.001) return;
+      tx = lerp(tx, x, wgt);
+      ty = lerp(ty, y, wgt);
+    };
+    if (s > 0) {
+      const g = speak * awake;
+      acc(g, R * 0.62 + Math.sin(t * 3.1) * R * 0.08 * mot, -R * 0.02 - lv * R * 0.22 + Math.sin(t * 4.3) * R * 0.06 * mot);
+      acc(w.listening * awake, headCx + hr * 1.12, headY + R * 0.04);
+      acc(w.thinking * awake, headCx + R * 0.06, headY + hr * 0.95);
+      acc(hover, R * 0.78 + Math.sin(t * 9) * R * 0.1 * mot, -R * 0.82 + Math.cos(t * 9) * R * 0.03 * mot);
+    } else {
+      acc(speak * awake * 0.6, -R * 0.56 + Math.sin(t * 2.3 + 1) * R * 0.06 * mot, R * 0.12 - lv * R * 0.08);
+      acc(w.thinking * awake, R * 0.12, R * 0.12);
+    }
+    const k = elbowFor(sx, sy, tx, ty, L1, L2, s);
+    limb(ctx, [sx, sy, k.ex, k.ey, k.hx, k.hy], armW, rgba(mixRgb(shirt, P.white, 0.06), 1));
+    ctx.strokeStyle = rgba(P.ink, 0.12);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = rgba(skin, 1);
+    circle(ctx, k.hx, k.hy, R * 0.075);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
 /** Renderer je Skin-ID. */
-export const RENDERERS = Object.freeze({ nebula, hologramm, neon, glas, roboter, eigenes });
+export const RENDERERS = Object.freeze({ mensch, nebula, hologramm, neon, glas, roboter, eigenes });
+/** Skins mit stehender Figur: Zustandseffekte sitzen am Kopf statt um die Mitte. */
+export const FIGURE_SKINS = Object.freeze(new Set(['mensch']));
 
 /** @param {unknown} id @returns {Function} Renderer (unbekannt → Nebula) */
 export function getRenderer(id) {
@@ -1065,6 +1393,11 @@ export function paintAvatar(ctx, o) {
   ctx.save();
   getRenderer(o.skin)(ctx, t, size, v, level, accent, extra);
   ctx.restore();
-  paintStateEffects(ctx, t, size, v, level, accent, extra);
+  if (FIGURE_SKINS.has(normalizeSkinId(o.skin))) {
+    ctx.translate(0, -size * 0.42);
+    paintStateEffects(ctx, t, size * 0.6, v, level, accent, extra);
+  } else {
+    paintStateEffects(ctx, t, size, v, level, accent, extra);
+  }
   ctx.restore();
 }

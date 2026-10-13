@@ -6,6 +6,7 @@ import { TTS_PROVIDERS, voiceSettingKey, normalizeAccent, permissionInfo } from 
 
 /** Fallback, falls overlay/skins.js (noch) nicht ladbar ist und das Backend keine Liste schickt. */
 export const DEFAULT_SKINS = [
+  { id: 'mensch', name: 'Mensch', description: 'Kleiner animierter Mensch mit Headset, der winkt, gestikuliert und lauscht.' },
   { id: 'nebula', name: 'Nebula', description: 'Leuchtende Energiewolke in deiner Akzentfarbe.' },
   { id: 'hologramm', name: 'Hologramm', description: 'Flimmerndes Hologramm mit Scanlinien.' },
   { id: 'neon', name: 'Neon', description: 'Kräftiger Neonring mit Glow.' },
@@ -51,7 +52,7 @@ export function createAppearance(ctx) {
   const gallery = h('div', { class: 'skin-grid', role: 'radiogroup', 'aria-label': 'Skin auswählen' });
   const accentInput = h('input', { type: 'color', class: 'color-input', 'aria-label': 'Akzentfarbe wählen' });
   const accentSwatches = h('div', { class: 'swatches' });
-  const sizeInput = h('input', { type: 'range', min: '96', max: '200', step: '4', class: 'range', 'aria-label': 'Größe von Vincent' });
+  const sizeInput = h('input', { type: 'range', min: '72', max: '220', step: '4', class: 'range', 'aria-label': 'Größe von Vincent' });
   const sizeVal = h('span', { class: 'num range-val' });
   const edgeCtl = segmented([{ value: 'left', label: 'Links' }, { value: 'right', label: 'Rechts' }], {
     label: 'Bildschirmrand', size: 'sm', onSelect: (v) => save({ appearance: { edge: v } }, `Vincent wohnt jetzt am ${v === 'left' ? 'linken' : 'rechten'} Rand.`),
@@ -176,7 +177,7 @@ export function createAppearance(ctx) {
 
   function applyPreview() {
     const a = app();
-    previewOrb.className = `swatch preview-orb swatch-${a.skin || 'nebula'}`;
+    previewOrb.className = `swatch preview-orb swatch-${a.skin || 'mensch'}`;
     const size = Number(sizeInput.value || a.size || 132);
     previewOrb.style.setProperty('--orb', `${Math.round(size * 0.62)}px`);
     preview.classList.toggle('edge-left', a.edge === 'left');
@@ -189,7 +190,7 @@ export function createAppearance(ctx) {
     const accent = normalizeAccent(a.accent);
 
     replaceChildren(gallery, skins.map((s) => {
-      const selected = s.id === (a.skin || 'nebula');
+      const selected = s.id === (a.skin || 'mensch');
       const b = h('button', {
         type: 'button', class: 'skin', role: 'radio', 'aria-checked': String(selected),
         onClick: () => {

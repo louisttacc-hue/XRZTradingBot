@@ -218,12 +218,51 @@ export function createSettings(ctx) {
       checked: unlocked,
       onChange: (v, input) => setLive(v, input),
     });
+    const pilot = unlocked && Boolean(settings?.live_autopilot_unlocked);
+    const ap = toggle({
+      label: 'Echtgeld-Autopilot erlauben',
+      hint: pilot
+        ? 'Aktiv – mit Autonomie „Handelt selbst“ tradet Vincent im LIVE-Modus ohne Einzel-Freigabe (klein anfangen, Obergrenzen, Notbremse).'
+        : 'Aus – jede Echtgeld-Order braucht dein „Ja, mit Echtgeld“.',
+      checked: pilot,
+      disabled: !unlocked,
+      onChange: (v, input) => setAutopilot(v, input),
+    });
     replaceChildren(safety, h('section', { class: `safety${unlocked ? ' is-unlocked' : ''}` },
       h('div', { class: 'safety-head' }, icon('shield', 20), h('h2', { text: 'Sicherheit' })),
       h('p', { class: 'safety-text', text: 'Erst wenn diese Sperre aufgehoben ist, lässt sich der LIVE-Modus überhaupt einschalten. '
-        + 'Auch dann braucht jede Echtgeld-Order deine ausdrückliche Freigabe, Vincent prüft vorher das aktive Konto, '
+        + 'Ohne Autopilot braucht jede Echtgeld-Order deine ausdrückliche Freigabe. Vincent prüft vorher immer das aktive Konto, '
         + `und es gilt die Obergrenze von ${maxUsd !== undefined ? fmtNumber(maxUsd, 0) : '–'} USD je Order.` }),
-      t.el));
+      t.el, ap.el));
+  }
+
+  async function setAutopilot(on, input) {
+    if (on) {
+      const typed = await ctx.ui.prompt({
+        title: 'Echtgeld-Autopilot erlauben?',
+        tone: 'bad',
+        icon: 'alert',
+        text: 'Im LIVE-Modus mit Autonomie „Handelt selbst“ setzt Vincent dann Echtgeld-Trades ohne Rückfrage – '
+          + 'klein beginnend, innerhalb deiner Risiko-Grenzen und der Obergrenze je Order. Verluste sind möglich, '
+          + 'es gibt keine Gewinngarantie. „Stopp“ oder Notstopp beendet alles. Tippe AUTOPILOT, wenn du das willst.',
+        input: { label: 'Bestätigung', placeholder: 'AUTOPILOT', expected: 'AUTOPILOT' },
+        confirmLabel: 'Autopilot erlauben',
+      });
+      if (typed === null) {
+        input.checked = false;
+        return;
+      }
+    }
+    const res = await ctx.ui.run(null, () => ctx.api.post('/api/settings', { settings: { live_autopilot_unlocked: on } }));
+    if (!res) {
+      input.checked = !on;
+      return;
+    }
+    settings.live_autopilot_unlocked = on;
+    ctx.ui.toast(on ? 'Echtgeld-Autopilot ist erlaubt.' : 'Echtgeld-Autopilot ist aus – Vincent fragt wieder vor jeder Echtgeld-Order.', on ? 'warn' : 'good');
+    showNotes(res.notes);
+    renderSafety();
+    ctx.refreshState();
   }
 
   async function setLive(on, input) {
@@ -242,12 +281,13 @@ export function createSettings(ctx) {
         return;
       }
     }
-    const res = await ctx.ui.run(null, () => ctx.api.post('/api/settings', { settings: { live_trading_unlocked: on } }));
+    const res = await ctx.ui.run(null, () => ctx.api.post('/api/settings', { settings: on ? { live_trading_unlocked: true } : { live_trading_unlocked: false, live_autopilot_unlocked: false } }));
     if (!res) {
       input.checked = !on;
       return;
     }
     settings.live_trading_unlocked = on;
+    if (!on) settings.live_autopilot_unlocked = false;
     ctx.ui.toast(on ? 'Echtgeld-Handel ist freigeschaltet.' : 'Echtgeld-Handel ist wieder gesperrt.', on ? 'warn' : 'good');
     showNotes(res.notes);
     renderSafety();

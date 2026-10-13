@@ -158,7 +158,7 @@ export function modeInfo(mode) {
 
 export const AUTONOMY = {
   ask: { label: 'Fragt vor jedem Trade', info: 'Jeder Trade braucht dein „Ja“ – per Klick, Stimme oder Telegram.' },
-  auto: { label: 'Paper automatisch', info: 'Im Paper-Modus handelt Vincent selbstständig. Im Echtgeld-Modus fragt er immer.' },
+  auto: { label: 'Handelt selbst', info: 'Vincent handelt selbstständig (klein anfangen, nach deinen Risiko-Grenzen). Mit Echtgeld nur, wenn der Echtgeld-Autopilot freigeschaltet ist.' },
 };
 
 /** Account-Infos aus TradingView-Status vereinheitlichen (Server- und Controller-Schreibweise). */

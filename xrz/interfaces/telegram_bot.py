@@ -454,6 +454,9 @@ class TelegramBot:
         if key not in TELEGRAM_EDITABLE:
             await self._reply(update, "Diese Einstellung ist per Telegram nicht änderbar (bitte im Dashboard).")
             return
+        if key == "trading.autonomy":
+            await self._reply(update, await self.engine.set_autonomy(value.strip().lower()))
+            return
         new = set_path(self.cfg.settings, key, value)
         self.cfg.save()
         await self._reply(update, f"✅ {key} = {new}")

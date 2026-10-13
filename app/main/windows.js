@@ -3,6 +3,7 @@
  * Fenster-Fabrik: Overlay (Vincent am Bildschirmrand, immer im Vordergrund, klick-durchlässig)
  * und Zentrale (normales App-Fenster). Beide mit abgesicherten webPreferences.
  */
+const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { app, BrowserWindow, screen, shell } = require('electron');
@@ -12,7 +13,7 @@ const RENDERER_DIR = path.join(__dirname, '..', 'renderer');
 const RENDERER_URL = pathToFileURL(RENDERER_DIR + path.sep).href;
 const PRELOAD = path.join(__dirname, 'preload.js');
 
-const OVERLAY_SIZE = { width: 440, height: 680 };
+const OVERLAY_SIZE = { width: 520, height: 700 };
 const ZENTRALE_BG = '#0b0d14';
 
 /** @type {BrowserWindow|null} */
@@ -22,6 +23,7 @@ let zentrale = null;
 /** @type {'left'|'right'} */
 let overlayEdge = 'right';
 let quitting = false;
+let saveTimer = null;
 
 /**
  * @typedef {{x: number, y: number, width: number, height: number}} Rect
@@ -56,6 +58,27 @@ function shiftWithin(bounds, workArea, dy) {
   const maxY = workArea.y + Math.max(0, workArea.height - bounds.height);
   const y = Math.min(maxY, Math.max(minY, Math.round(bounds.y + dy)));
   return { ...bounds, y };
+}
+
+/**
+ * Overlay frei verschieben: der sichtbare Avatar-Bereich (zone.left..zone.right innerhalb des Fensters)
+ * bleibt horizontal auf der Arbeitsfläche, das ganze Fenster bleibt vertikal darauf.
+ *
+ * @param {Rect} bounds
+ * @param {Rect} workArea
+ * @param {number} dx
+ * @param {number} dy
+ * @param {{left?: number, right?: number}} [zone] Avatar-Bereich relativ zum Fenster (Pixel)
+ * @returns {Rect}
+ */
+function moveWithin(bounds, workArea, dx, dy, zone = {}) {
+  const zl = Number.isFinite(zone.left) ? Math.max(0, Math.min(bounds.width, zone.left)) : 0;
+  const zr = Number.isFinite(zone.right) ? Math.max(zl, Math.min(bounds.width, zone.right)) : bounds.width;
+  const minX = workArea.x - zl;
+  const maxX = workArea.x + workArea.width - zr;
+  const x = Math.min(Math.max(minX, maxX), Math.max(minX, Math.round(bounds.x + (Number(dx) || 0))));
+  const shifted = shiftWithin({ ...bounds, x }, workArea, Number(dy) || 0);
+  return shifted;
 }
 
 /**
@@ -122,6 +145,36 @@ function dockOverlay() {
   if (!overlay || overlay.isDestroyed()) return;
   const { workArea } = screen.getPrimaryDisplay();
   overlay.setBounds(computeOverlayBounds(workArea, { ...OVERLAY_SIZE, edge: overlayEdge }));
+  savePosition();
+}
+
+function positionFile() {
+  return path.join(app.getPath('userData'), 'overlay-position.json');
+}
+
+/** Zuletzt gezogene Position laden (nur wenn sie noch auf einer Anzeige liegt). */
+function loadPosition() {
+  try {
+    const p = JSON.parse(fs.readFileSync(positionFile(), 'utf8'));
+    if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) return null;
+    const b = { x: Math.round(p.x), y: Math.round(p.y), ...OVERLAY_SIZE };
+    const onScreen = screen.getAllDisplays().some(({ workArea: a }) => b.x + b.width / 2 >= a.x && b.x + b.width / 2 < a.x + a.width
+      && b.y + b.height / 2 >= a.y && b.y + b.height / 2 < a.y + a.height);
+    return onScreen ? { bounds: b, edge: p.edge === 'left' ? 'left' : 'right' } : null;
+  } catch {
+    return null;
+  }
+}
+
+function savePosition() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const win = getOverlay();
+    if (!win) return;
+    const { x, y } = win.getBounds();
+    fs.promises.writeFile(positionFile(), JSON.stringify({ x, y, edge: overlayEdge }))
+      .catch((err) => console.error('[windows] Position nicht gespeichert:', err.message));
+  }, 400);
 }
 
 /**
@@ -131,7 +184,8 @@ function dockOverlay() {
  */
 function createOverlay(opts = {}) {
   if (overlay && !overlay.isDestroyed()) return overlay;
-  overlayEdge = opts.edge === 'left' ? 'left' : 'right';
+  const saved = loadPosition();
+  overlayEdge = saved ? saved.edge : opts.edge === 'left' ? 'left' : 'right';
 
   /** @type {Electron.BrowserWindowConstructorOptions} */
   const options = {
@@ -161,7 +215,8 @@ function createOverlay(opts = {}) {
   win.setAlwaysOnTop(true, 'floating');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.setIgnoreMouseEvents(true, { forward: true });
-  dockOverlay();
+  if (saved) win.setBounds(saved.bounds);
+  else dockOverlay();
 
   const redock = () => dockOverlay();
   screen.on('display-metrics-changed', redock);
@@ -285,14 +340,35 @@ function moveOverlay(dy) {
 }
 
 /**
- * Rand für das Overlay setzen und neu andocken.
- * @param {'left'|'right'} edge
+ * Overlay frei verschieben (Ziehen mit der Maus).
+ * @param {number} dx
+ * @param {number} dy
+ * @param {{left?: number, right?: number}} [zone] Avatar-Bereich im Fenster
+ * @returns {{x: number, y: number, width: number, height: number, workArea: Rect}|null}
  */
-function setOverlayEdge(edge) {
+function moveOverlayBy(dx, dy, zone) {
+  const win = getOverlay();
+  if (!win) return null;
+  const bounds = win.getBounds();
+  const center = { x: bounds.x + (zone && Number.isFinite(zone.left) ? (zone.left + zone.right) / 2 : bounds.width / 2) + (Number(dx) || 0), y: bounds.y + bounds.height / 2 + (Number(dy) || 0) };
+  const { workArea } = screen.getDisplayNearestPoint({ x: Math.round(center.x), y: Math.round(center.y) });
+  const next = moveWithin(bounds, workArea, dx, dy, zone);
+  win.setBounds(next);
+  savePosition();
+  return { ...next, workArea };
+}
+
+/**
+ * Rand für das Overlay setzen; mit dock=true wird es neu an den Rand gesetzt.
+ * @param {'left'|'right'} edge
+ * @param {boolean} [dock]
+ */
+function setOverlayEdge(edge, dock = true) {
   const next = edge === 'left' ? 'left' : 'right';
   if (next === overlayEdge) return;
   overlayEdge = next;
-  dockOverlay();
+  if (dock) dockOverlay();
+  else savePosition();
 }
 
 /** Beim Beenden aufrufen, damit das Overlay wirklich geschlossen wird. */
@@ -303,6 +379,7 @@ function setQuitting(value) {
 module.exports = {
   computeOverlayBounds,
   shiftWithin,
+  moveWithin,
   isAppUrl,
   isWebUrl,
   harden,
@@ -312,6 +389,7 @@ module.exports = {
   getZentrale,
   setOverlayVisible,
   moveOverlay,
+  moveOverlayBy,
   setOverlayEdge,
   setQuitting,
   OVERLAY_SIZE,

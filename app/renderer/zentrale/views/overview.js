@@ -23,7 +23,7 @@ export function createOverview(ctx) {
     banners,
     stats,
     h('div', { class: 'ov-grid' },
-      card({ class: 'area-props', title: 'Trade-Vorschläge', icon: 'bolt', subtitle: 'Vincent handelt erst, wenn du freigibst.', actions: propsCount }, propsBody),
+      card({ class: 'area-props', title: 'Trade-Vorschläge', icon: 'bolt', subtitle: 'Freigeben, ablehnen – oder Vincent im Auto-Modus selbst handeln lassen.', actions: propsCount }, propsBody),
       h('div', { class: 'area-chat' }, chat.el),
       card({ class: 'area-pos', title: 'Offene Positionen', icon: 'layers' }, posBody),
       card({
@@ -54,7 +54,11 @@ export function createOverview(ctx) {
   function renderBanners(s) {
     const items = [];
     if (s.halted) items.push(banner('bad', 'alert', 'Handel gestoppt', String(s.halted)));
-    if (s.mode === 'live') items.push(banner('bad', 'bolt', 'Echtgeld-Modus aktiv', 'Jede Order läuft über dein echtes Broker-Konto und braucht deine ausdrückliche Freigabe.'));
+    if (s.mode === 'live') {
+      items.push(banner('bad', 'bolt', 'Echtgeld-Modus aktiv', s.live_autopilot && s.autonomy === 'auto'
+        ? 'Autopilot: Vincent handelt selbstständig über dein echtes Broker-Konto – klein beginnend, innerhalb deiner Risiko-Grenzen.'
+        : 'Jede Order läuft über dein echtes Broker-Konto und braucht deine ausdrückliche Freigabe.'));
+    }
     if (s.entries_paused) items.push(banner('warn', 'clock', 'Neue Einstiege pausiert', 'Bestehende Positionen werden weiter verwaltet.'));
     replaceChildren(banners, items);
   }

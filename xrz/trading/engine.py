@@ -121,9 +121,16 @@ class TradingEngine:
         return self.s.trading.autonomy
 
     @property
+    def live_autopilot(self) -> bool:
+        """Echtgeld ohne Einzel-Freigabe: nur wenn Echtgeld UND Autopilot am Mac freigeschaltet sind."""
+        return bool(self.s.live_trading_unlocked and self.s.live_autopilot_unlocked)
+
+    @property
     def auto_execute(self) -> bool:
-        """Automatisch handeln nur im Paper-Modus und nur, wenn du es erlaubt hast."""
-        return self.mode == "paper" and self.autonomy == "auto"
+        """Selbst handeln nur, wenn du es erlaubt hast (Echtgeld zusätzlich nur mit Autopilot-Freigabe)."""
+        if self.autonomy != "auto":
+            return False
+        return self.mode == "paper" or (self.mode == "live" and self.live_autopilot)
 
     @property
     def entries_paused(self) -> bool:
@@ -224,8 +231,8 @@ class TradingEngine:
                             "Handelspanel „Paper Trading“ auswählen – vorher führe ich nichts aus.")
                 else:
                     msg += "\nTradingView Paper Trading ist aktiv ✓"
-                msg += ("\nIch handle automatisch (nur Paper)." if self.autonomy == "auto"
-                        else "\nVor jedem Trade frage ich dich.")
+                msg += ("\nIch handle selbstständig – klein anfangen, nach deinen Risiko-Einstellungen."
+                        if self.autonomy == "auto" else "\nVor jedem Trade frage ich dich.")
             else:
                 msg += "\nIch analysiere und mache Vorschläge, führe aber nichts aus."
             asyncio.create_task(self.scan_once())
@@ -258,8 +265,10 @@ class TradingEngine:
             f"Broker in TradingView: {acc.get('broker_title') or acc.get('broker_id')} · Konto {acc.get('account_name', '')}\n"
             f"Risiko pro Trade: {r.risk_per_trade_pct}% · max. {r.max_live_order_usd:g} pro Order · Tagesverlust-Limit "
             f"{r.max_daily_loss_pct}% · Notbremse bei {r.max_drawdown_pct}% Drawdown\n"
-            "Jeder einzelne Trade braucht trotzdem dein ausdrückliches „Ja, mit Echtgeld“.\n"
-            "Es gibt KEINE Gewinngarantie – Verluste sind möglich.\n"
+            + ("Echtgeld-Autopilot ist freigeschaltet: Im Auto-Modus handle ich selbst – klein anfangen, "
+               "harte Obergrenze je Order, Notbremse aktiv.\n" if self.live_autopilot else
+               "Jeder einzelne Trade braucht trotzdem dein ausdrückliches „Ja, mit Echtgeld“.\n")
+            + "Es gibt KEINE Gewinngarantie – Verluste sind möglich.\n"
             f"Bestätigungscode (5 Minuten gültig): {code}"
         )
         return {"needs_confirmation": True, "text": text, "code": code}
@@ -279,12 +288,16 @@ class TradingEngine:
             return "In TradingView ist inzwischen kein Echtgeld-Konto mehr aktiv – abgebrochen."
         self.storage.kv_set("mode", "live")
         self.storage.kv_set("entries_paused", False)
-        if self.s.trading.autonomy == "auto":
+        if self.s.trading.autonomy == "auto" and not self.live_autopilot:
             self.s.trading.autonomy = "ask"
             self.cfg.save()
         equity = await self.account_equity()
         self.risk.reset_peak("live", equity)
-        msg = "🔴 ECHTGELD-MODUS AKTIV. Jeder Trade braucht dein „Ja, mit Echtgeld“. „Stopp“ oder Panik beendet alles."
+        if self.auto_execute:
+            msg = ("🔴 ECHTGELD-MODUS AKTIV – Autopilot: Ich handle selbst, starte klein und halte mich an deine "
+                   "Risiko-Grenzen. „Stopp“ oder Panik beendet alles.")
+        else:
+            msg = "🔴 ECHTGELD-MODUS AKTIV. Jeder Trade braucht dein „Ja, mit Echtgeld“. „Stopp“ oder Panik beendet alles."
         await self.events.notify("mode", msg)
         self._emit_state()
         return msg
@@ -292,13 +305,18 @@ class TradingEngine:
     async def set_autonomy(self, level: str) -> str:
         if level not in ("ask", "auto"):
             raise ValueError("Autonomie muss ask oder auto sein")
-        if level == "auto" and self.mode == "live":
-            return "Im Echtgeld-Modus frage ich immer vor jedem Trade – das lässt sich nicht abschalten."
+        if level == "auto" and self.mode == "live" and not self.live_autopilot:
+            return ("Im Echtgeld-Modus frage ich vor jedem Trade. Selbstständig mit Echtgeld handle ich erst, wenn du "
+                    "in der Zentrale unter Einstellungen → Sicherheit den Echtgeld-Autopiloten freischaltest.")
         self.s.trading.autonomy = level
         self.cfg.save()
         self._emit_state()
         if level == "auto":
-            return "Okay: Im Paper-Modus handle ich ab jetzt selbstständig. Bei Echtgeld frage ich immer."
+            if self.mode == "live":
+                return "Okay: Ich handle ab jetzt selbstständig mit Echtgeld – klein anfangen, nach deinen Grenzen."
+            extra = (" Mit Echtgeld ebenfalls (Autopilot freigeschaltet)." if self.live_autopilot
+                     else " Bei Echtgeld frage ich weiter vor jedem Trade.")
+            return "Okay: Im Paper-Modus handle ich ab jetzt selbstständig." + extra
         return "Okay: Ich frage dich vor jedem Trade."
 
     async def pause(self) -> str:
@@ -434,9 +452,24 @@ class TradingEngine:
             factor = float(review.get("size_factor", 1.0))
             if factor < 1.0:
                 p.qty = _round_qty(p.qty * max(0.25, factor))
-        if p.qty <= 0:
+        ramp = self.start_small_factor(sizing_mode)
+        if ramp < 1.0:
+            floor_qty = self.s.risk.min_order_usd / price if price > 0 else 0.0
+            p.qty = _round_qty(min(p.qty, max(p.qty * ramp, floor_qty)))
+            p.risk_text = f"{p.risk_text} · Startphase: {ramp:.0%} der normalen Größe".strip(" ·")
+        if p.qty <= 0 or p.qty * price < self.s.risk.min_order_usd * 0.999:
             return None
         return p
+
+    def start_small_factor(self, mode: str) -> float:
+        """Klein anfangen: die ersten Trades je Modus mit 25 % → 100 % der berechneten Größe."""
+        n_ramp = max(0, int(self.s.risk.start_small_trades))
+        if n_ramp == 0:
+            return 1.0
+        done = len(self.storage.closed_trades(mode)) + len(self.storage.open_trades(mode))
+        if done >= n_ramp:
+            return 1.0
+        return 0.25 + 0.75 * done / n_ramp
 
     async def _submit_proposal(self, p: Proposal) -> None:
         self.proposals[p.id] = p
@@ -449,7 +482,7 @@ class TradingEngine:
             if p.ai_comment:
                 text += f"\n🤖 {p.ai_comment}"
         await self.events.notify("proposal", text, {"proposal_id": p.id, "spoken": p.spoken()})
-        if self.auto_execute and p.account_kind == "paper":
+        if self.auto_execute and p.account_kind == self.mode and p.account_kind in ("paper", "live"):
             await self.approve(p.id, source="auto")
         self._emit_state()
 
@@ -763,7 +796,7 @@ class TradingEngine:
         tv = st["tradingview"]
         acc = tv.get("account") or {}
         konto = {"paper": "Paper Trading ✓", "live": "ECHTGELD ⚠️"}.get(acc.get("kind"), "unbekannt")
-        lines = [f"🤖 Vincent – Modus: {st['mode_word']} · {'fragt vor jedem Trade' if st['autonomy'] == 'ask' else 'Paper automatisch'}"]
+        lines = [f"🤖 Vincent – Modus: {st['mode_word']} · {'fragt vor jedem Trade' if st['autonomy'] == 'ask' else 'handelt selbstständig'}"]
         lines.append(f"TradingView: {'verbunden' if tv.get('connected') else 'nicht verbunden'} · Konto: {konto}"
                      + (f" · Wert {acc['equity']:,.2f}" if isinstance(acc.get("equity"), (int, float)) else ""))
         if st["halted"]:

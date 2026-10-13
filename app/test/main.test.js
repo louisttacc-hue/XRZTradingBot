@@ -224,6 +224,18 @@ describe('computeOverlayBounds / shiftWithin', () => {
     assert.equal(windows.shiftWithin(b, workArea, 1000).y, 25 + 920 - 680);
   });
 
+  it('verschiebt frei, der Avatar-Bereich bleibt auf dem Bildschirm', () => {
+    const b = { x: 900, y: 145, width: 520, height: 700 };
+    const zone = { left: 330, right: 510 };
+    const moved = windows.moveWithin(b, workArea, -100, 40, zone);
+    assert.deepEqual([moved.x, moved.y], [800, 185]);
+    // ganz nach links: das Fenster darf links hinaus, der Avatar nicht
+    assert.equal(windows.moveWithin(b, workArea, -5000, 0, zone).x, -330);
+    // ganz nach rechts: Avatar endet am rechten Rand
+    assert.equal(windows.moveWithin(b, workArea, 5000, 0, zone).x, 1512 - 510);
+    assert.equal(windows.moveWithin(b, workArea, 0, 5000, zone).y, 25 + 920 - 700);
+  });
+
   it('blockiert neue Fenster und Navigation weg von der App (harden)', () => {
     const handlers = {};
     let openHandler = null;

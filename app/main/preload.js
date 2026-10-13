@@ -35,8 +35,14 @@ contextBridge.exposeInMainWorld('vincent', {
   focusOverlay: () => ipcRenderer.invoke('overlay:focus'),
   /** @param {number} dy Overlay vertikal verschieben (Pixel) */
   moveOverlay: (dy) => ipcRenderer.invoke('overlay:move', Number(dy)),
-  /** @param {'left'|'right'} edge Overlay an den linken/rechten Rand setzen */
-  setOverlayEdge: (edge) => ipcRenderer.invoke('overlay:setEdge', edge === 'left' ? 'left' : 'right'),
+  /**
+   * Overlay frei verschieben (Ziehen); zone = Avatar-Bereich im Fenster {left, right} in Pixeln.
+   * @returns {Promise<{x: number, y: number, width: number, height: number, workArea: object}|null>}
+   */
+  moveOverlayBy: (dx, dy, zone) => ipcRenderer.invoke('overlay:moveBy', Number(dx), Number(dy),
+    zone ? { left: Number(zone.left), right: Number(zone.right) } : null),
+  /** @param {'left'|'right'} edge Overlay an den linken/rechten Rand setzen; dock=false: nur merken */
+  setOverlayEdge: (edge, dock = true) => ipcRenderer.invoke('overlay:setEdge', edge === 'left' ? 'left' : 'right', dock !== false),
   /** cb({action: 'listen'|'stop'|'toggle', visible?}) bei globalen Tastenkürzeln/Tray-Aktionen */
   onShortcut: (cb) => subscribe('shortcut', cb),
   /** cb({open: boolean|null}) wenn der Chat geöffnet/geschlossen werden soll */

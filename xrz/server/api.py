@@ -113,6 +113,7 @@ async def build_state(ctx: Any) -> dict[str, Any]:
     st["skin"] = {"id": a.skin, "accent": a.accent, "size": a.size, "edge": a.edge,
                   "custom_image": a.custom_image or None, "show_subtitles": a.show_subtitles}
     st["live_unlocked"] = s.live_trading_unlocked
+    st["live_autopilot"] = bool(s.live_trading_unlocked and s.live_autopilot_unlocked)
     return st
 
 
@@ -445,10 +446,14 @@ def create_api(ctx: Any) -> FastAPI:
                 raise HTTPException(400, f"Ungültige Einstellungen: {exc}")
         new = ctx.cfg.settings
         notes: list[str] = []
-        if new.trading.autonomy == "auto" and ctx.engine.mode == "live":
+        if new.live_autopilot_unlocked and not new.live_trading_unlocked:
+            new.live_autopilot_unlocked = False
+            ctx.cfg.save()
+            notes.append("Der Echtgeld-Autopilot braucht zuerst die Echtgeld-Freischaltung")
+        if new.trading.autonomy == "auto" and ctx.engine.mode == "live" and not ctx.engine.live_autopilot:
             new.trading.autonomy = "ask"
             ctx.cfg.save()
-            notes.append("Im Echtgeld-Modus bleibt „vorher fragen“ immer aktiv")
+            notes.append("Im Echtgeld-Modus bleibt „vorher fragen“ aktiv, solange der Echtgeld-Autopilot gesperrt ist")
         if "telegram_token" in changed_secrets or old.telegram.enabled != new.telegram.enabled:
             await ctx.telegram.restart()
             notes.append("Telegram neu gestartet" + (f" ({ctx.telegram.error})" if ctx.telegram.error else ""))

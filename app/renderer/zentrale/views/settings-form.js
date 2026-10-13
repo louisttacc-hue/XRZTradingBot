@@ -22,7 +22,7 @@ export const SECTIONS = {
 };
 
 /** Pfade, die nicht im generierten Formular erscheinen (eigene Bedienelemente). */
-export const SPECIAL_FIELDS = new Set(['live_trading_unlocked']);
+export const SPECIAL_FIELDS = new Set(['live_trading_unlocked', 'live_autopilot_unlocked']);
 
 export const FIELD_LABELS = {
   'trading.watchlist': 'Beobachtungsliste',
@@ -195,6 +195,7 @@ export const ENUMS = {
     { value: 'left', label: 'Links' },
   ],
   'appearance.skin': [
+    { value: 'mensch', label: 'Mensch' },
     { value: 'nebula', label: 'Nebula' },
     { value: 'hologramm', label: 'Hologramm' },
     { value: 'neon', label: 'Neon' },
@@ -239,7 +240,7 @@ export const LIMITS = {
   'risk.trailing_atr_mult': [0.5, 8.0],
   'trading.entry_threshold': [0.1, 0.95],
   'trading.exit_threshold': [-0.9, 0.5],
-  'appearance.size': [96, 200],
+  'appearance.size': [72, 220],
 };
 
 /** "max_open_positions" → "Max open positions" (Fallback für unbekannte Felder). */

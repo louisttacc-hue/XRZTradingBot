@@ -199,10 +199,11 @@ function renderChrome() {
   document.body.dataset.mode = s.mode || '';
 
   const auto = s.autonomy === 'auto';
-  const canAuto = s.mode === 'paper' || auto;
+  const canAuto = s.mode !== 'live' || Boolean(s.live_autopilot) || auto;
   autonomyBtn.setAttribute('aria-checked', String(auto));
   autonomyBtn.disabled = !connected || !canAuto;
-  autonomyBtn.title = canAuto ? (AUTONOMY[s.autonomy] || AUTONOMY.ask).info : 'Selbstständiges Handeln gibt es nur im Paper-Modus.';
+  autonomyBtn.title = canAuto ? (AUTONOMY[s.autonomy] || AUTONOMY.ask).info
+    : 'Mit Echtgeld handelt Vincent nur selbst, wenn der Echtgeld-Autopilot freigeschaltet ist (Einstellungen → Sicherheit).';
   autonomyBtn.querySelector('.autonomy-v').textContent = (AUTONOMY[s.autonomy] || AUTONOMY.ask).label;
 
   const acc = accountInfo(s.tradingview);

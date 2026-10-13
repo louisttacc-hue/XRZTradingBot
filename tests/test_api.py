@@ -32,9 +32,9 @@ def test_auth_host_and_cors(ctx):
 def test_state_shape(client):
     st = client.get("/api/state").json()
     for key in ("mode", "mode_word", "autonomy", "voice", "tradingview", "ai", "telegram", "memory", "skin",
-                "proposals", "positions", "analyses", "watchlist", "version"):
+                "proposals", "positions", "analyses", "watchlist", "version", "live_autopilot"):
         assert key in st, key
-    assert st["mode"] == "off" and st["skin"]["id"] == "nebula" and st["tradingview"]["connected"] is True
+    assert st["mode"] == "off" and st["skin"]["id"] == "mensch" and st["tradingview"]["connected"] is True
 
 
 def test_mode_proposal_flow_via_api(client, ctx):

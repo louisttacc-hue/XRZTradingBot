@@ -334,7 +334,7 @@ export function resolveAppearance(skin, fallbackEdge = 'right') {
   return {
     skin: normalizeSkinId(s.id ?? s.skin),
     accent: isHexColor(s.accent) ? s.accent.trim() : DEFAULT_ACCENT,
-    size: Number.isFinite(size) && size > 0 ? Math.round(clamp(size, 72, 200)) : 132,
+    size: Number.isFinite(size) && size > 0 ? Math.round(clamp(size, 72, 220)) : 132,
     edge: (s.edge ?? fallbackEdge) === 'left' ? 'left' : 'right',
     customImage: typeof s.custom_image === 'string' ? s.custom_image : '',
     showSubtitles: s.show_subtitles !== false,
@@ -407,6 +407,12 @@ class OverlayApp {
     this.quickTimer = 0;
     this.connTimer = 0;
     this.reduced = false;
+    this.suppressClick = false;
+    this.wheelAcc = 0;
+    this.sizeSaveTimer = 0;
+    this.localEdge = null;
+    this.localSize = null;
+    this.edgeFromDrag = false;
   }
 
   /** Aufruf einer Preload-Funktion – fehlt die Brücke (normaler Browser), passiert nichts. */
@@ -535,7 +541,16 @@ class OverlayApp {
     hit.addEventListener('pointerleave', hideSoon);
     hit.addEventListener('focus', show);
     hit.addEventListener('blur', hideSoon);
-    hit.addEventListener('click', () => this.listen());
+    hit.addEventListener('click', (e) => {
+      if (this.suppressClick) {
+        e.preventDefault();
+        return;
+      }
+      this.listen();
+    });
+    this.initDrag(hit);
+    hit.addEventListener('wheel', (e) => this.onWheelResize(e), { passive: false });
+    this.initDrag(this.el.panel.querySelector('.panel-head'), true);
     for (const btn of Object.values(this.qa)) {
       btn.addEventListener('pointerenter', show);
       btn.addEventListener('pointerleave', hideSoon);
@@ -544,6 +559,114 @@ class OverlayApp {
       btn.addEventListener('click', () => this.quickAction(btn.dataset.action));
     }
     propDot.addEventListener('click', () => this.setChatOpen(true));
+  }
+
+  // ------------------------------------------------------------ Ziehen & Größe
+
+  /** Sichtbarer Avatar-Bereich im Fenster (Pixel) – bleibt beim Verschieben auf dem Bildschirm. */
+  avatarZone() {
+    const r = this.el.wrap.getBoundingClientRect();
+    return { left: Math.round(r.left), right: Math.round(r.right) };
+  }
+
+  /** Ziehen mit der Maus verschiebt das ganze Overlay frei; ein Klick ohne Bewegung bleibt ein Klick. */
+  initDrag(node, skipInteractive = false) {
+    if (!node) return;
+    let drag = null;
+    node.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || (skipInteractive && e.target.closest('button, input, textarea, a, select'))) return;
+      drag = { id: e.pointerId, sx: e.screenX, sy: e.screenY, lx: e.screenX, ly: e.screenY, moved: false, dx: 0, dy: 0, busy: null };
+      try {
+        node.setPointerCapture(e.pointerId);
+      } catch { /* ohne Capture geht es auch */ }
+    });
+    node.addEventListener('pointermove', (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      if (!drag.moved) {
+        if (Math.hypot(e.screenX - drag.sx, e.screenY - drag.sy) < 5) return;
+        drag.moved = true;
+        this.el.body.classList.add('dragging');
+        this.hideQuick();
+      }
+      drag.dx += e.screenX - drag.lx;
+      drag.dy += e.screenY - drag.ly;
+      drag.lx = e.screenX;
+      drag.ly = e.screenY;
+      this.flushDrag(drag);
+    });
+    const end = (e) => {
+      if (!drag || e.pointerId !== drag.id) return;
+      const d = drag;
+      drag = null;
+      try {
+        node.releasePointerCapture(e.pointerId);
+      } catch { /* bereits freigegeben */ }
+      if (!d.moved) return;
+      this.suppressClick = true;
+      setTimeout(() => {
+        this.suppressClick = false;
+      }, 0);
+      this.el.body.classList.remove('dragging');
+      this.finishDrag(d).catch((err) => console.warn('[overlay] Ziehen:', err));
+    };
+    node.addEventListener('pointerup', end);
+    node.addEventListener('pointercancel', end);
+  }
+
+  flushDrag(d) {
+    if (d.busy) return d.busy;
+    if (!d.dx && !d.dy) return Promise.resolve();
+    const dx = d.dx;
+    const dy = d.dy;
+    d.dx = 0;
+    d.dy = 0;
+    d.busy = Promise.resolve(this.callVin('moveOverlayBy', dx, dy, this.avatarZone()))
+      .catch(() => null)
+      .then(() => {
+        d.busy = null;
+        if (d.dx || d.dy) return this.flushDrag(d);
+        return null;
+      });
+    return d.busy;
+  }
+
+  /** Nach dem Ziehen: Liegt Vincent in der anderen Bildschirmhälfte, öffnet sich der Chat zur Mitte hin. */
+  async finishDrag(d) {
+    while (d.busy || d.dx || d.dy) await this.flushDrag(d);
+    const zone = this.avatarZone();
+    const b = await this.callVin('moveOverlayBy', 0, 0, zone);
+    if (!b || !b.workArea) return;
+    const cx = b.x + (zone.left + zone.right) / 2;
+    const want = cx < b.workArea.x + b.workArea.width / 2 ? 'left' : 'right';
+    if (want === this.appearance.edge) return;
+    const w = window.innerWidth;
+    const mirrored = { left: w - zone.right, right: w - zone.left };
+    this.localEdge = { edge: want, until: Date.now() + 5000 };
+    this.edgeFromDrag = true;
+    this.applyAppearance({ ...this.appearance, edge: want });
+    this.edgeFromDrag = false;
+    await this.callVin('moveOverlayBy', zone.left - mirrored.left, 0, mirrored);
+    api.post('/api/settings', { settings: { appearance: { edge: want } } })
+      .catch((err) => console.warn('[overlay] Rand nicht gespeichert:', err));
+  }
+
+  /** Mausrad/Trackpad über Vincent: größer oder kleiner (72–220 px), wird gespeichert. */
+  onWheelResize(e) {
+    e.preventDefault();
+    this.wheelAcc += e.deltaY;
+    if (Math.abs(this.wheelAcc) < 30) return;
+    const step = this.wheelAcc > 0 ? -8 : 8;
+    this.wheelAcc = 0;
+    const size = Math.round(clamp(this.appearance.size + step, 72, 220));
+    if (size === this.appearance.size) return;
+    this.localSize = { size, until: Date.now() + 5000 };
+    this.applyAppearance({ ...this.appearance, size });
+    clearTimeout(this.sizeSaveTimer);
+    this.sizeSaveTimer = setTimeout(() => {
+      this.localSize = { size, until: Date.now() + 3000 };
+      api.post('/api/settings', { settings: { appearance: { size } } })
+        .catch((err) => console.warn('[overlay] Größe nicht gespeichert:', err));
+    }, 500);
   }
 
   hideQuick() {
@@ -657,7 +780,10 @@ class OverlayApp {
     if (a.edge !== prev.edge) {
       body.classList.toggle('edge-left', a.edge === 'left');
       body.classList.toggle('edge-right', a.edge !== 'left');
+      // In den Einstellungen geändert → Fenster an den neuen Rand setzen; beim Ziehen nur merken
+      if (prev.edge) this.callVin('setOverlayEdge', a.edge, !this.edgeFromDrag);
     }
+    if (a.skin !== prev.skin) body.dataset.skin = a.skin;
     if (a.size !== prev.size) {
       body.style.setProperty('--av', `${a.size}px`);
       this.avatar.setSize(a.size);
@@ -691,7 +817,14 @@ class OverlayApp {
         ? `Schreib mir oder sag „${ww}“.`
         : 'Schreib mir eine Nachricht.';
     }
-    if (s.skin && typeof s.skin === 'object') this.applyAppearance(resolveAppearance(s.skin, this.appearance.edge));
+    if (s.skin && typeof s.skin === 'object') {
+      const a = resolveAppearance(s.skin, this.appearance.edge);
+      const now = Date.now();
+      // Eben gezogen/skaliert: lokalen Wert halten, bis das Backend ihn gespeichert hat
+      if (this.localEdge && now < this.localEdge.until && a.edge !== this.localEdge.edge) a.edge = this.localEdge.edge;
+      if (this.localSize && now < this.localSize.until && a.size !== this.localSize.size) a.size = this.localSize.size;
+      this.applyAppearance(a);
+    }
     const mb = modeBadge(s.mode);
     this.el.badge.textContent = mb.label;
     this.el.badge.className = `mode-badge tone-${mb.tone}${mb.pulse ? ' pulse' : ''}`;

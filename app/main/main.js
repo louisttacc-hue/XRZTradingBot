@@ -234,8 +234,12 @@ function registerIpc() {
     windows.moveOverlay(Number(dy));
     return true;
   });
-  handle('overlay:setEdge', (_e, edge) => {
-    windows.setOverlayEdge(edge === 'left' ? 'left' : 'right');
+  handle('overlay:moveBy', (_e, dx, dy, zone) => {
+    const z = zone && typeof zone === 'object' ? { left: Number(zone.left), right: Number(zone.right) } : undefined;
+    return windows.moveOverlayBy(Number(dx), Number(dy), z);
+  });
+  handle('overlay:setEdge', (_e, edge, dock) => {
+    windows.setOverlayEdge(edge === 'left' ? 'left' : 'right', dock !== false);
     return true;
   });
   handle('permissions:get', () => permissions.getStatus());
@@ -343,9 +347,40 @@ function main() {
     if (isMac) app.dock?.show(); // setVisibleOnAllWorkspaces kann das Dock-Icon ausblenden
     createTray();
     registerShortcuts();
+    if (process.env.VINCENT_SELFTEST_DIR) runSelftest(process.env.VINCENT_SELFTEST_DIR);
   }).catch((err) => {
     console.error('[main] Start fehlgeschlagen:', err);
   });
+}
+
+/**
+ * Selbsttest für Entwicklung/CI (nur mit VINCENT_SELFTEST_DIR): Bildschirmfotos von Overlay
+ * (zu/offen) und Zentrale speichern, danach beenden.
+ * @param {string} dir
+ */
+async function runSelftest(dir) {
+  const fs = require('node:fs');
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const shot = async (win, name) => {
+    if (!win || win.isDestroyed()) return;
+    const img = await win.webContents.capturePage();
+    fs.writeFileSync(path.join(dir, `${name}.png`), img.toPNG());
+  };
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    await wait(Number(process.env.VINCENT_SELFTEST_WAIT || 15000));
+    const overlay = windows.getOverlay();
+    await shot(overlay, 'overlay');
+    overlay?.webContents.send('chat:toggle', { open: true });
+    await wait(1500);
+    await shot(overlay, 'overlay-chat');
+    windows.createZentrale();
+    await wait(6000);
+    await shot(windows.getZentrale(), 'zentrale');
+  } catch (err) {
+    console.error('[selftest]', err);
+  }
+  app.quit();
 }
 
 if (app.requestSingleInstanceLock()) {

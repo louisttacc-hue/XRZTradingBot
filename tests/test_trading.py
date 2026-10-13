@@ -137,7 +137,7 @@ async def test_live_requires_unlock_code_and_live_account(ctx):
     assert "Falscher Code" in await ctx.engine.confirm_live("000000" if res["code"] != "000000" else "111111")
     assert "AKTIV" in await ctx.engine.confirm_live(res["code"])
     assert ctx.engine.mode == "live"
-    assert "immer" in await ctx.engine.set_autonomy("auto")
+    assert "Autopiloten" in await ctx.engine.set_autonomy("auto")
     assert ctx.engine.autonomy == "ask"
 
 
@@ -226,3 +226,48 @@ async def test_reflection_writes_lesson(ctx):
     ctx.storage.insert_trade(t)
     await ctx.brain.reflect_on_trade(t)
     assert any("Test-Lektion" in l for l in ctx.memory.recent_lessons(3))
+
+
+# ------------------------------------------------- Echtgeld-Autopilot & klein anfangen
+async def _go_live(ctx):
+    ctx.cfg.settings.live_trading_unlocked = True
+    ctx.cfg.settings.exchange.data_source = "exchange"
+    ctx.tradingview.kind = "live"
+    res = await ctx.engine.request_live()
+    await ctx.engine.confirm_live(res["code"])
+    ctx.cfg.settings.exchange.data_source = "demo"
+
+
+async def test_live_autopilot_needs_explicit_unlock(ctx):
+    await _go_live(ctx)
+    assert "Autopiloten" in await ctx.engine.set_autonomy("auto")
+    assert ctx.engine.autonomy == "ask" and not ctx.engine.auto_execute
+    ctx.cfg.settings.live_autopilot_unlocked = True
+    assert "Echtgeld" in await ctx.engine.set_autonomy("auto")
+    assert ctx.engine.auto_execute
+    loosen(ctx)
+    await ctx.engine.scan_once()
+    assert ctx.tradingview.orders and ctx.tradingview.orders[0][1].value == "live"
+    req = ctx.tradingview.orders[0][0]
+    assert req.qty * ctx.engine.proposals[next(iter(ctx.engine.proposals))].price <= ctx.cfg.settings.risk.max_live_order_usd + 1e-6
+
+
+async def test_autopilot_requires_live_unlock_via_api(ctx):
+    from fastapi.testclient import TestClient
+    from xrz.server.api import create_api
+
+    with TestClient(create_api(ctx), base_url="http://127.0.0.1:8765") as c:
+        h = {"X-Vincent-Token": "test-token"}
+        r = c.post("/api/settings", json={"settings": {"live_autopilot_unlocked": True}}, headers=h).json()
+        assert r["ok"] and ctx.cfg.settings.live_autopilot_unlocked is False and r["notes"]
+
+
+def test_start_small_ramp(ctx):
+    ctx.cfg.settings.risk.start_small_trades = 4
+    assert ctx.engine.start_small_factor("paper") == pytest.approx(0.25)
+    for i in range(2):
+        ctx.storage.insert_trade(Trade(mode="paper", symbol=f"X{i}/USDT", side="long", qty=1, entry_price=1,
+                                       entry_time=0, exit_price=1, exit_time=1, pnl=0, status="closed"))
+    assert ctx.engine.start_small_factor("paper") == pytest.approx(0.625)
+    ctx.cfg.settings.risk.start_small_trades = 0
+    assert ctx.engine.start_small_factor("paper") == 1.0

@@ -59,7 +59,8 @@ class TradingSettings(BaseModel):
     use_ai_review: bool = True  # KI prüft jeden Trade (darf nur ablehnen/verkleinern)
     tradingview_signal_weight: float = 0.35
     tradingview_signal_minutes: int = 120
-    # ask = jeder Trade braucht dein "Ja" (Stimme/Klick/Telegram); auto = nur im Paper-Modus erlaubt
+    # ask = jeder Trade braucht dein "Ja" (Stimme/Klick/Telegram); auto = Vincent handelt selbst
+    # (Paper immer möglich, Echtgeld nur mit freigeschaltetem Echtgeld-Autopiloten)
     autonomy: Literal["ask", "auto"] = "ask"
     proposal_timeout_minutes: int = 10
     account_size_fallback: float = 10_000.0  # falls der Kontostand nicht aus TradingView lesbar ist
@@ -91,6 +92,8 @@ class RiskSettings(BaseModel):
     fee_pct: float = 0.1
     slippage_pct: float = 0.05
     min_order_usd: float = 10.0
+    # Klein anfangen: die ersten N Trades je Modus mit 25 % → 100 % der normalen Größe
+    start_small_trades: int = 5
 
 
 class ExchangeSettings(BaseModel):
@@ -181,7 +184,7 @@ class MemorySettings(BaseModel):
 
 
 class AppearanceSettings(BaseModel):
-    skin: str = "nebula"  # nebula | hologramm | neon | glas | roboter | eigenes
+    skin: str = "mensch"  # mensch | nebula | hologramm | neon | glas | roboter | eigenes
     accent: str = "#7c5cff"
     size: int = 132
     edge: Literal["right", "left"] = "right"
@@ -211,6 +214,8 @@ class Settings(BaseModel):
     mac: MacSettings = Field(default_factory=MacSettings)
     # Echtgeld muss hier bewusst freigeschaltet werden, bevor der Live-Modus überhaupt geht.
     live_trading_unlocked: bool = False
+    # Echtgeld-Autopilot: Vincent darf im LIVE-Modus ohne Einzel-Freigabe handeln (nur am Mac freischaltbar)
+    live_autopilot_unlocked: bool = False
 
 
 # Felder, die per Telegram (/set) geändert werden dürfen. Bewusst begrenzt.
