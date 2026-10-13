@@ -101,7 +101,7 @@ def test_voice_and_tradingview_endpoints(client, ctx):
 
 
 def test_websocket_sends_state_and_events(client, ctx):
-    with client.websocket_connect(f"/ws?token={TOKEN}") as ws:
+    with client.websocket_connect(f"ws://127.0.0.1:8765/ws?token={TOKEN}") as ws:
         first = ws.receive_json()
         assert first["type"] == "state" and "mode" in first["data"]
         ws.send_text('{"type":"ping"}')
@@ -112,7 +112,7 @@ def test_websocket_rejects_bad_token(client):
     from starlette.websockets import WebSocketDisconnect
 
     with pytest.raises(WebSocketDisconnect):
-        with client.websocket_connect("/ws?token=falsch") as ws:
+        with client.websocket_connect("ws://127.0.0.1:8765/ws?token=falsch") as ws:
             ws.receive_json()
 
 
