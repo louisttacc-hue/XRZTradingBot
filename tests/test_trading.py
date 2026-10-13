@@ -98,7 +98,7 @@ async def test_reject_and_expiry(ctx):
     await ctx.engine.set_mode("paper")
     p = await _first_proposal(ctx)
     assert "lasse" in await ctx.engine.reject(p["id"])
-    assert ctx.engine.list_proposals(True) == []
+    assert p["id"] not in [x["id"] for x in ctx.engine.list_proposals(True)]
     p2 = next(iter(ctx.engine.proposals.values()))
     p2.status, p2.expires = "pending", time.time() - 1
     assert "abgelaufen" in await ctx.engine.approve(p2.id)

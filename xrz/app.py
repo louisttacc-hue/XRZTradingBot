@@ -101,10 +101,13 @@ def build(data_dir: Path | None = None, demo: bool = False, token: str | None = 
             await mac.notify(APP_NAME, _first_line(text))
         if not cfg.settings.voice.enabled:
             return
+        speaker = brain.voice  # zur Laufzeit austauschbar (z. B. in Tests)
+        if speaker is None:
+            return
         if kind == "proposal" and data.get("spoken"):
-            await voice.say(data["spoken"])
+            await speaker.say(data["spoken"])
         elif kind == "trade":
-            await voice.say(_first_line(text))
+            await speaker.say(_first_line(text))
 
     events.subscribe(side_effects)
     tok = token or os.environ.get("VINCENT_TOKEN") or secrets.token_hex(24)
