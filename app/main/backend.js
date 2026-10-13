@@ -300,9 +300,8 @@ class BackendSupervisor extends EventEmitter {
    * @param {object} [opts]
    * @param {string} [opts.logDir] Ordner für backend.log (z. B. userData/logs)
    * @param {string} [opts.resourcesPath]
-   * @param {boolean} [opts.demo] `--demo` übergeben
    * @param {boolean} [opts.echo] Backend-Ausgabe zusätzlich auf die Konsole schreiben
-   * @param {NodeJS.ProcessEnv} [opts.env]
+   * @param {NodeJS.ProcessEnv} [opts.env] Umgebung (Standard process.env; VINCENT_DEMO=1 → `--demo`)
    * @param {number} [opts.healthTimeoutMs] max. Wartezeit auf /api/health (Standard 120 s)
    * @param {number} [opts.stopGraceMs] Wartezeit zwischen SIGTERM und SIGKILL (Standard 5 s)
    */

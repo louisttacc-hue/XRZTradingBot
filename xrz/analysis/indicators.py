@@ -215,7 +215,7 @@ def williams_r(df: pd.DataFrame, n: int = 14) -> pd.Series:
     """Williams %R (−100 … 0): Lage des Schlusskurses in der n-Kerzen-Spanne."""
     hh = df["high"].rolling(n, min_periods=n).max()
     ll = df["low"].rolling(n, min_periods=n).min()
-    return -100 * (hh - df["close"]) / (hh - ll).replace(0, np.nan)
+    return (-100 * (hh - df["close"]) / (hh - ll).replace(0, np.nan)).clip(-100.0, 0.0)
 
 
 def aroon(df: pd.DataFrame, n: int = 25) -> pd.DataFrame:
@@ -257,7 +257,7 @@ def stoch_rsi(close: pd.Series, rsi_n: int = 14, stoch_n: int = 14, k: int = 3, 
     r = rsi(close, rsi_n)
     lo = r.rolling(stoch_n, min_periods=stoch_n).min()
     hi = r.rolling(stoch_n, min_periods=stoch_n).max()
-    raw = 100 * (r - lo) / (hi - lo).replace(0, np.nan)
+    raw = (100 * (r - lo) / (hi - lo).replace(0, np.nan)).clip(0.0, 100.0)
     pk = sma(raw, k)
     return pd.DataFrame({"k": pk, "d": sma(pk, d)})
 

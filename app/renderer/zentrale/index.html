@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: file:; connect-src http://127.0.0.1:* ws://127.0.0.1:*; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>XRZ Vincent – Zentrale</title>
+  <link rel="stylesheet" href="zentrale.css">
+  <script src="../vendor/lightweight-charts.standalone.production.js" defer></script>
+  <script type="module" src="zentrale.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#content">Zum Inhalt springen</a>
+  <div class="app">
+    <aside class="sidebar" id="sidebar" aria-label="Seitenleiste"></aside>
+    <div class="main">
+      <header class="topbar" id="topbar"></header>
+      <main class="content" id="content" tabindex="-1"></main>
+    </div>
+  </div>
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <div class="modal-root" id="modal-root"></div>
+  <div class="offline is-visible" id="offline" role="alertdialog" aria-modal="true" aria-labelledby="offline-title" aria-describedby="offline-msg">
+    <div class="offline-card">
+      <div class="offline-orb" aria-hidden="true"><span class="offline-ring"></span><span class="offline-core"></span></div>
+      <h1 class="offline-title" id="offline-title">Verbinde mit Vincent …</h1>
+      <p class="offline-msg" id="offline-msg">Das Backend wird gestartet.</p>
+      <p class="offline-hint">Das dauert beim ersten Start einen Moment. Falls es hängt: Vincent über das Menüleisten-Symbol neu starten.</p>
+    </div>
+  </div>
+  <noscript><p class="noscript">Die Zentrale braucht JavaScript.</p></noscript>
+</body>
+</html>

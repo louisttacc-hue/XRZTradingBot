@@ -628,7 +628,6 @@ def build_providers(settings: Any, secrets: Any, data_dir: Path, http: httpx.Cli
                                            base_url=settings.ai.openai_base_url or "https://api.openai.com/v1"))
         elif name == "piper":
             if piper_installed() and piper_store.valid_name(v.piper_voice):
-                piper_store.ensure(v.piper_voice)
                 providers.append(PiperTTS(model_path=piper_store.model_path(v.piper_voice)))
         elif name == "macos" and say_available():
             providers.append(MacSayTTS(voice=v.macos_voice))
@@ -689,6 +688,12 @@ class TTSChain:
     def cooling(self, name: str) -> bool:
         with self._lock:
             return self._cool.get(name, 0.0) > time.time()
+
+    def reset_cooldowns(self) -> None:
+        """Nach geänderten Keys/Einstellungen alle Anbieter sofort wieder versuchen."""
+        with self._lock:
+            self._cool.clear()
+        _SAY_CACHE["ts"] = 0.0
 
     def providers(self) -> list[TTSProvider]:
         return self._providers()

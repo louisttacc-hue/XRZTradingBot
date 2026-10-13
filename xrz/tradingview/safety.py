@@ -275,8 +275,12 @@ def _positive(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
 
 
+def valid_symbol(symbol: Any) -> bool:
+    return isinstance(symbol, str) and bool(_SYMBOL_RE.match(symbol.strip()))
+
+
 def validate_request(req: OrderRequest) -> tuple[bool, str]:
-    if not isinstance(req.symbol, str) or not _SYMBOL_RE.match(req.symbol.strip()):
+    if not valid_symbol(req.symbol):
         return False, f"Ungültiges Symbol „{req.symbol}“ (erwartet z. B. BINANCE:BTCUSDT)."
     if req.side not in ("buy", "sell"):
         return False, "Richtung muss Kaufen oder Verkaufen sein."
@@ -428,8 +432,9 @@ def _close(a: Any, b: Any, tol: float) -> bool:
     return _positive(a) and _positive(b) and abs(float(a) - float(b)) <= tol
 
 
-def _price_tol(price: float | None, min_tick: float | None) -> float:
-    return max(min_tick or 0.0, abs(price or 0.0) * 1e-4)
+def price_tolerance(price: float | None, min_tick: float | None) -> float:
+    """Erlaubte Preisabweichung beim Rücklesen: ein Tick bzw. 0,01 %."""
+    return max(min_tick or 0.0, abs(price or 0.0) * 1e-4) + 1e-12
 
 
 def evaluate_fill(before: dict[str, Any], after: dict[str, Any], req: OrderRequest, qty: float,
@@ -468,7 +473,7 @@ def evaluate_fill(before: dict[str, Any], after: dict[str, Any], req: OrderReque
         out["brackets_ok"] = _brackets_present(req, position, after.get("orders") or [], out["order_id"], min_tick)
         return out
     if req.order_type == "limit":
-        ptol = _price_tol(req.limit_price, min_tick)
+        ptol = price_tolerance(req.limit_price, min_tick)
         for o in mine:
             if o.get("status") in (labels.STATUS_WORKING, labels.STATUS_PLACING, labels.STATUS_INACTIVE) \
                     and abs(float(o.get("qty") or 0) - qty) <= tol:
@@ -495,7 +500,7 @@ def _brackets_present(req: OrderRequest, holder: dict[str, Any] | None, orders: 
     for want, key in ((req.take_profit, "takeProfit"), (req.stop_loss, "stopLoss")):
         if not want:
             continue
-        tol = _price_tol(want, min_tick)
+        tol = price_tolerance(want, min_tick)
         if not (_close(holder.get(key), want, tol) or any(_close(p, want, tol) for p in child_prices)):
             return False
     return True

@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 import numpy as np
 
 from .extract import REDACTED, clean_fact, contains_secret, redact_secrets
-from .retrieve import COSINE_DUP, Bm25Index, near_duplicate, compatible, retention_score
+from .retrieve import COSINE_DUP, Bm25Index, compatible, near_duplicate, retention_score
 from .store import (
     KV_LAST_CONSOLIDATION,
     KV_LAST_DECAY,

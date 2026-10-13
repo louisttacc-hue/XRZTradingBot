@@ -46,10 +46,67 @@ Overfitting: Zu viele optimierte Parameter passen perfekt zur Vergangenheit und 
 Die häufigsten Fehler: Rache-Trading nach Verlusten, zu große Positionen aus Gier, Gewinne zu früh mitnehmen und Verluste laufen lassen, Regeln während des Trades ändern. Ein Bot hilft, weil er Regeln emotionslos befolgt – aber nur, wenn man ihn nicht ständig manuell übersteuert. Nach einer Verlustserie: Größe reduzieren, nicht erhöhen.
 
 ## Checkliste vor Live-Trading
-1. Mindestens mehrere Wochen Paper-Trading mit positiven Ergebnissen und genug Trades (> 30). 2. Börsen-API-Key OHNE Auszahlungsrechte, idealerweise mit IP-Beschränkung. 3. Erst mit kleinem Betrag und niedrigem Live-Order-Limit starten. 4. Tagesverlust-Limit und Notbremse aktiv. 5. Nur Geld einsetzen, dessen Verlust man verkraften kann. 6. Den Mac wach halten (der Bot muss laufen, um Stops zu überwachen) – zusätzlich Stops an der Börse platzieren.
+1. Mindestens mehrere Wochen Paper-Trading mit positiven Ergebnissen und genug Trades (> 30). 2. In TradingView prüfen, welches Konto aktiv ist: Paper Trading ist Spielgeld, ein verbundener Broker ist echtes Geld. 3. Erst mit kleinem Betrag und niedrigem Limit pro Order starten. 4. Tagesverlust-Limit und Notbremse aktiv. 5. Nur Geld einsetzen, dessen Verlust man verkraften kann. 6. Jede Order mit Stop-Loss beim Broker platzieren – nicht darauf verlassen, dass der Mac wach ist und Vincent den Stop überwacht.
 
 ## Steuern in Deutschland (Krypto, ohne Gewähr)
 Gewinne aus privaten Krypto-Verkäufen sind nach über einem Jahr Haltedauer steuerfrei; darunter steuerpflichtig, sofern die Gewinne aus privaten Veräußerungsgeschäften im Jahr die Freigrenze (seit 2024: 1.000 €) erreichen. Jeder Trade muss dokumentiert werden – der Bot speichert alle Trades in seiner Datenbank. Dies ist keine Steuerberatung.
 
-## Wie XRZ Entscheidungen trifft
-1. Daten laden (Zeitrahmen + übergeordneter Zeitrahmen). 2. Indikatoren, Marktphase, Unterstützungen/Widerstände berechnen. 3. Sieben Strategien bewerten; jede bekommt ein Gewicht aus dem Walk-Forward-Backtest und aus den Ergebnissen echter Trades. 4. Gewichteter Ensemble-Score von −1 bis +1, gefiltert durch den übergeordneten Trend und TradingView-Alerts. 5. Die KI prüft den Kandidaten (darf ablehnen oder verkleinern, nie vergrößern). 6. Das Risiko-Management berechnet die Positionsgröße und hat das letzte Wort. 7. Nach jedem Trade wird eine Lektion gespeichert.
+## Wie Vincent Entscheidungen trifft
+1. Daten laden (Zeitrahmen + übergeordneter Zeitrahmen). 2. Indikatoren, Marktphase, Unterstützungen/Widerstände berechnen. 3. Über 35 Strategien (Trend, Momentum, Mean-Reversion, Ausbruch, Volumen, Kerzenmuster) bewerten; jede bekommt ein Gewicht aus dem Walk-Forward-Backtest und aus den Ergebnissen echter Trades. 4. Gewichteter Ensemble-Score von −1 bis +1, gefiltert durch den übergeordneten Trend und TradingView-Alerts. 5. Die KI prüft den Kandidaten (darf ablehnen oder verkleinern, nie vergrößern). 6. Das Risiko-Management berechnet die Positionsgröße und hat das letzte Wort. 7. Vincent schlägt den Trade vor; ausgeführt wird erst nach Freigabe – und nur in TradingView, nachdem das aktive Konto (Paper oder Live) geprüft wurde. 8. Nach jedem Trade wird eine Lektion gespeichert.
+
+## Orderarten
+Market-Order: sofort zum besten verfügbaren Preis – sicher ausgeführt, aber mit Slippage. Limit-Order: nur zum angegebenen Preis oder besser – kein Slippage, aber evtl. keine Ausführung. Stop-Order: wird bei Erreichen des Stop-Preises zur Market-Order (typisch für Stop-Loss und Ausbruchs-Einstiege); in schnellen Märkten kann der Ausführungspreis deutlich schlechter sein. Stop-Limit: wird zur Limit-Order – kein Slippage, aber Risiko, gar nicht ausgeführt zu werden. Bracket-Order: Einstieg mit fest verknüpftem Take-Profit und Stop-Loss (OCO: wird eines ausgeführt, verfällt das andere).
+
+## Erwartungswert und R-Multiple
+1R ist der Betrag, den man pro Trade riskiert (Abstand Einstieg–Stop × Stückzahl). Erwartungswert pro Trade in R = Trefferquote × Ø Gewinn in R − Verlustquote × Ø Verlust in R. Beispiel: 40 % Treffer mit Ø 2R Gewinn, 60 % Verluste mit Ø 1R → 0,4 × 2 − 0,6 × 1 = +0,2R pro Trade. Die Gewinnschwelle liegt bei 1 ÷ (1 + Chance-Risiko-Verhältnis): bei 2:1 also ca. 33 % Trefferquote – vor Gebühren und Slippage. Eine hohe Trefferquote allein sagt nichts, wenn die seltenen Verluste sehr groß sind.
+
+## Verlustserien sind normal
+Auch gute Systeme haben lange Verlustserien. Bei 40 % Trefferquote liegt die Wahrscheinlichkeit, in 200 Trades mindestens 8 Verluste in Folge zu erleben, bei rund 75 %. Deshalb pro Trade nur so viel riskieren, dass auch 10 Verluste hintereinander verkraftbar sind (bei 1 % Risiko etwa −10 %). Eine Verlustserie ist erst dann ein Warnsignal, wenn sie deutlich länger ist, als die Statistik des Systems erwarten lässt, oder wenn sich die Marktphase geändert hat.
+
+## Marktstruktur
+Aufwärtstrend = höhere Hochs und höhere Tiefs, Abwärtstrend = tiefere Hochs und tiefere Tiefs. Ein Strukturbruch (z. B. das letzte höhere Tief wird unterschritten) ist oft das erste Warnzeichen für eine Trendwende, bestätigt sich aber erst mit einem tieferen Hoch. Einstiege mit dem Trend nach einem Rücksetzer an ein früheres Ausbruchsniveau (Retest) haben meist ein besseres Chance-Risiko-Verhältnis als das Hinterherlaufen hinter einer großen Kerze.
+
+## Gleitende Durchschnitte
+SMA gewichtet alle Kerzen gleich, EMA gewichtet jüngere Kerzen stärker und reagiert schneller. Viel beachtet: EMA 20 (kurzfristiger Trend), SMA/EMA 50 (mittelfristig) und SMA 200 (langfristig; darüber gilt ein Markt als bullisch). Golden Cross = SMA 50 kreuzt SMA 200 nach oben, Death Cross = nach unten; beide sind späte Signale. In Seitwärtsphasen erzeugen Durchschnitts-Kreuzungen viele Fehlsignale.
+
+## Stochastik und andere Oszillatoren
+Die Stochastik (%K meist über 14 Perioden, %D als 3er-Durchschnitt) zeigt, wo der Schlusskurs innerhalb der jüngsten Spanne liegt: über 80 überkauft, unter 20 überverkauft. Wie beim RSI gilt: In Trends bleiben Oszillatoren lange im Extrembereich, Signale gegen den Trend sind riskant. Williams %R und CCI messen Ähnliches. Mehrere Oszillatoren gleichzeitig zu nutzen bringt kaum Zusatzinformation, weil sie aus denselben Kursdaten berechnet werden.
+
+## Divergenzen
+Klassische (reguläre) Divergenz: Kurs macht ein neues Hoch, RSI/MACD nicht → nachlassendes Momentum, mögliche Umkehr (umgekehrt bei Tiefs). Versteckte Divergenz: Kurs macht ein höheres Tief, der Oszillator ein tieferes Tief → oft Fortsetzung des Aufwärtstrends. Divergenzen können lange bestehen, bevor der Kurs dreht; als Einstieg nur zusammen mit einer Bestätigung (Strukturbruch, Kerzenmuster an einer Zone) nutzen.
+
+## Kerzenmuster
+Einzelne Kerzen sind nur im Kontext aussagekräftig – an Unterstützung/Widerstand und in Trendrichtung. Hammer bzw. Pin-Bar (langer unterer Docht, kleiner Körper oben) an einer Unterstützung zeigt abgewiesene Verkäufer; Shooting Star ist das Gegenstück am Widerstand. Bullish/Bearish Engulfing: Der Körper verschluckt die vorherige Kerze komplett. Doji: Unentschlossenheit, wichtig vor allem nach einem langen Trend. Morning/Evening Star: Drei-Kerzen-Umkehrmuster. Immer den Schlusskurs der Kerze abwarten, bevor ein Muster als gültig gilt.
+
+## Chartformationen
+Kopf-Schulter (bzw. umgekehrt als Boden): Umkehrformation; das Kursziel ist der Abstand Kopf–Nackenlinie, vom Ausbruchspunkt abgetragen. Doppeltop/-boden: zwei Tests derselben Zone, gültig erst mit Bruch des Zwischentiefs/-hochs. Dreiecke, Flaggen und Wimpel sind meist Fortsetzungsformationen; der Ausbruch sollte mit Volumen kommen. Steigende Keile sind oft bärisch, fallende Keile bullisch. Fehlausbrüche sind häufig – ein Schlusskurs außerhalb der Formation oder ein Retest erhöht die Verlässlichkeit.
+
+## Fibonacci-Retracements
+Nach einer Bewegung korrigieren Kurse oft bis zu typischen Anteilen der Strecke: 38,2 %, 50 % und 61,8 % (seltener 23,6 % und 78,6 %). Die Zone 50–61,8 % ist in intakten Trends eine beliebte Einstiegszone für Rücksetzer. Fibonacci-Niveaus sind keine Naturgesetze, sondern wirken, weil viele Marktteilnehmer sie beachten – am stärksten, wenn sie mit einer früheren Unterstützung/Widerstand oder einem gleitenden Durchschnitt zusammenfallen. Erweiterungen (127,2 %, 161,8 %) dienen als Kursziele.
+
+## VWAP und Volumenprofil
+Der VWAP (volumengewichteter Durchschnittspreis) beginnt mit jeder Sitzung neu und ist ein Maßstab institutioneller Händler: Kurse über dem VWAP zeigen Käuferkontrolle im Tagesverlauf, darunter Verkäuferkontrolle. Im Intraday-Handel dient er als dynamische Unterstützung bzw. Widerstand. Das Volumenprofil zeigt, auf welchen Preisniveaus am meisten gehandelt wurde (Point of Control); Bereiche mit wenig Volumen werden oft schnell durchlaufen.
+
+## Ichimoku
+Tenkan-sen (Mitte der letzten 9 Perioden) und Kijun-sen (26 Perioden) wirken wie schnelle und langsame Durchschnitte. Die Wolke (Senkou Span A und B, 26 Perioden in die Zukunft verschoben) zeigt Trend und Unterstützungszonen: Kurs über der Wolke = Aufwärtstrend, darin = neutral. Die Chikou Span (Schlusskurs 26 Perioden zurückversetzt) bestätigt, wenn sie frei über bzw. unter dem Kurs liegt. Ichimoku funktioniert am besten in klaren Trends und auf höheren Zeitrahmen.
+
+## Liquidität, Spread und Slippage
+Spread = Abstand zwischen Geld- und Briefkurs; jeder Market-Trade zahlt ihn. Slippage = Differenz zwischen erwartetem und tatsächlichem Ausführungspreis, besonders bei Nachrichten, dünnen Märkten, außerhalb der Handelszeiten und bei großen Orders. Kleine Altcoins und Nebenwerte haben oft große Spreads – ein Stop von 1 % ist dort kaum sinnvoll. Gebühren und Slippage machen vor allem bei kurzfristigen Strategien mit kleinen Zielen einen großen Teil des Ergebnisses aus.
+
+## Handelszeiten und Sitzungen
+Krypto handelt rund um die Uhr. US-Aktien: reguläre Sitzung 15:30–22:00 Uhr deutscher Zeit (in den Wochen der Zeitumstellung eine Stunde abweichend), Xetra 9:00–17:30 Uhr. Devisen handeln werktags rund um die Uhr; am meisten Bewegung gibt es in der London-Sitzung und in der Überschneidung mit New York (ca. 14–17 Uhr deutscher Zeit). Zwischen Sitzungen und über das Wochenende können bei Aktien und Futures Kurslücken (Gaps) entstehen, die Stops überspringen.
+
+## Hebel, Margin und Liquidation
+Hebel vergrößert Gewinne und Verluste gleichermaßen. Bei 10-fachem Hebel genügt eine Gegenbewegung von knapp unter 10 % für die Liquidation, weil zusätzlich eine Mindest-Margin gehalten werden muss. Die Positionsgröße sollte sich immer aus dem Risiko bis zum Stop ergeben, nicht aus dem verfügbaren Hebel. Bei unbefristeten Krypto-Futures (Perpetuals) fallen Finanzierungsgebühren (Funding) an, meist alle 8 Stunden: Ist die Funding-Rate positiv, zahlen Long-Positionen an Short-Positionen – stark positive Funding-Raten zeigen überhitzte Long-Positionierung.
+
+## Korrelation und Klumpenrisiko
+Positionen, die stark zusammenhängen, sind praktisch eine einzige große Position: mehrere Altcoins (folgen Bitcoin), mehrere US-Tech-Aktien, EUR/USD long und USD/CHF short. Vor einem neuen Trade prüfen, ob er das Gesamtrisiko nur verdoppelt. Faustregel: Das Risiko aller offenen, stark korrelierten Positionen zusammen sollte die Grenze für einen einzelnen Trade nicht weit übersteigen. In Krisen steigen Korrelationen – Diversifikation wirkt dann schwächer als gedacht.
+
+## Kennzahlen eines Handelssystems
+Trefferquote, Ø Gewinn/Verlust in R und Erwartungswert sind die Basis. Profit-Faktor = Summe der Gewinne ÷ Summe der Verluste (über 1,5 gilt als solide, unter 1 verliert das System). Maximaler Drawdown = größter Rückgang vom Höchststand – entscheidend für die psychologische Belastbarkeit. Sharpe-Ratio = Rendite pro Einheit Schwankung. Aussagekräftig sind die Zahlen erst ab einigen Dutzend Trades und wenn sie in verschiedenen Marktphasen ähnlich bleiben.
+
+## Trading-Journal
+Zu jedem Trade gehören: Grund für den Einstieg, Marktphase, Einstieg/Stop/Ziel, Positionsgröße, Ergebnis in R, Ausstiegsgrund und eine kurze Lektion. Regelmäßig auswerten: Welche Setups verdienen Geld, zu welchen Zeiten, in welcher Marktphase? Wo wurden Regeln gebrochen? Vincent speichert jede Lektion in seinem Gedächtnis und berücksichtigt sie bei künftigen Vorschlägen.
+
+## Paper-Trading in TradingView
+TradingView bietet ein eigenes Paper-Trading-Konto mit virtuellem Guthaben. Es ist ideal, um Strategien und die Bedienung risikolos zu testen, ist aber optimistischer als die Realität: Ausführungen erfolgen ohne echte Slippage und Liquiditätsprobleme, und die Psychologie mit echtem Geld fehlt. Paper-Ergebnisse deshalb mit Abschlag bewerten und beim Wechsel auf echtes Geld mit kleiner Größe beginnen. Vor jeder Order muss klar sein, welches Konto in TradingView gerade aktiv ist.

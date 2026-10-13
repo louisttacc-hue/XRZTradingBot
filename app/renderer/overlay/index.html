@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' data: file:; connect-src http://127.0.0.1:* ws://127.0.0.1:*; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Vincent</title>
+  <link rel="stylesheet" href="overlay.css">
+  <script type="module" src="overlay.js"></script>
+</head>
+<body class="edge-right" data-vstate="disconnected">
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M18.5 10.5v.5a6.5 6.5 0 0 1-13 0v-.5"/><path d="M12 17.5v4"/></symbol>
+    <symbol id="i-mic-off" viewBox="0 0 24 24"><path d="M3 3l18 18"/><path d="M15 9.6V5.5a3 3 0 0 0-5.7-1.3"/><path d="M9 9v2a3 3 0 0 0 5.1 2.1"/><path d="M18.5 10.5v.5a6.4 6.4 0 0 1-.6 2.7"/><path d="M5.5 10.5v.5a6.5 6.5 0 0 0 10.7 5"/><path d="M12 17.5v4"/></symbol>
+    <symbol id="i-volume" viewBox="0 0 24 24"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20.5 11.6a8.4 8.4 0 0 1-12.3 7.4L3.5 20.5l1.5-4.6A8.4 8.4 0 1 1 20.5 11.6z"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="8.5" rx="2"/><rect x="13.5" y="3.5" width="7" height="5" rx="2"/><rect x="13.5" y="11.5" width="7" height="9" rx="2"/><rect x="3.5" y="15" width="7" height="5.5" rx="2"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M5.5 11.5 12 5l6.5 6.5"/></symbol>
+    <symbol id="i-trade" viewBox="0 0 24 24"><path d="m21.5 7-8 8-5-5-6 6"/><path d="M15.5 7h6v6"/></symbol>
+    <symbol id="i-warning" viewBox="0 0 24 24"><path d="M10.3 3.9 2.4 17.6A2 2 0 0 0 4.1 20.6h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9.5v4"/><path d="M12 17h.01"/></symbol>
+    <symbol id="i-error" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15 9-6 6M9 9l6 6"/></symbol>
+    <symbol id="i-mode" viewBox="0 0 24 24"><rect x="2.5" y="6.5" width="19" height="11" rx="5.5"/><circle cx="16" cy="12" r="2.6"/></symbol>
+    <symbol id="i-report" viewBox="0 0 24 24"><path d="M14 2.5H6.5a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2V8z"/><path d="M14 2.5V8h5.5"/><path d="M8.5 13h7M8.5 17h5"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4.5M12 8h.01"/></symbol>
+    <symbol id="i-telegram" viewBox="0 0 24 24"><path d="m21.5 3-7 18-3.8-7.7L3 9.5z"/><path d="M21.5 3 10.7 13.3"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+    <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3.5 13.8 9a2 2 0 0 0 1.2 1.2l5.5 1.8-5.5 1.8a2 2 0 0 0-1.2 1.2L12 20.5 10.2 15A2 2 0 0 0 9 13.8L3.5 12 9 10.2A2 2 0 0 0 10.2 9z"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 21s7.5-3.4 7.5-9.2V5.6L12 3 4.5 5.6v6.2C4.5 17.6 12 21 12 21z"/><path d="m9 12 2 2 4-4"/></symbol>
+  </svg>
+
+  <main id="stage" class="stage">
+    <div id="avatar-wrap" class="avatar-wrap">
+      <canvas id="avatar" class="avatar-canvas" aria-hidden="true"></canvas>
+      <button id="avatar-hit" class="avatar-hit" type="button" data-hit aria-label="Vincent – klicken zum Zuhören"></button>
+      <span id="mode-badge" class="mode-badge tone-grey" aria-live="polite">AUS</span>
+      <button id="prop-dot" class="prop-dot" type="button" data-hit hidden aria-label="Offene Handelsvorschläge anzeigen">1</button>
+      <div id="quick" class="quick" role="toolbar" aria-label="Schnellaktionen">
+        <button type="button" class="qa" data-action="listen" data-hit aria-label="Zuhören">
+          <svg class="ico"><use href="#i-mic"/></svg><span class="tip">Zuhören</span>
+        </button>
+        <button type="button" class="qa" data-action="chat" data-hit aria-label="Chat">
+          <svg class="ico"><use href="#i-chat"/></svg><span class="tip">Chat</span>
+        </button>
+        <button type="button" class="qa" data-action="mute" data-hit aria-label="Stummschalten">
+          <svg class="ico"><use href="#i-mic-off"/></svg><span class="tip">Stumm</span>
+        </button>
+        <button type="button" class="qa" data-action="zentrale" data-hit aria-label="Zentrale öffnen">
+          <svg class="ico"><use href="#i-grid"/></svg><span class="tip">Zentrale</span>
+        </button>
+      </div>
+    </div>
+
+    <div id="bubble" class="bubble glass" data-hit role="status" aria-live="polite" hidden>
+      <span class="bubble-lead" aria-hidden="true"><i></i><i></i><i></i></span>
+      <p id="bubble-text" class="bubble-text"></p>
+    </div>
+
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+  </main>
+
+  <section id="panel" class="panel glass" data-hit aria-label="Chat mit Vincent" aria-hidden="true" inert>
+    <header class="panel-head">
+      <div class="ph-row">
+        <div class="ph-title">
+          <span class="ph-name">Vincent</span>
+          <span id="ph-status" class="ph-status">Nicht verbunden</span>
+        </div>
+        <button id="panel-close" class="icon-btn" type="button" aria-label="Chat schließen">
+          <svg class="ico"><use href="#i-x"/></svg>
+        </button>
+      </div>
+      <div class="ph-chips">
+        <span id="chip-mode" class="chip tone-grey">Modus: AUS</span>
+        <span id="chip-tv" class="chip tone-grey">TradingView nicht verbunden</span>
+      </div>
+    </header>
+
+    <div id="proposals" class="proposals" aria-label="Offene Handelsvorschläge"></div>
+
+    <div id="messages" class="messages" role="log" aria-live="polite" aria-label="Nachrichten">
+      <div id="empty" class="empty">
+        <p class="empty-title">Hallo, ich bin Vincent.</p>
+        <p id="empty-hint" class="empty-hint">Schreib mir oder sag „Hey Vincent“.</p>
+        <div class="suggest">
+          <button type="button" class="sugg">Wie steht der Markt?</button>
+          <button type="button" class="sugg">Zeig mir meine Positionen</button>
+          <button type="button" class="sugg">Was hast du dir über mich gemerkt?</button>
+        </div>
+      </div>
+    </div>
+
+    <form id="composer" class="composer" autocomplete="off">
+      <textarea id="input" class="input" rows="1" maxlength="4000" placeholder="Nachricht an Vincent …" aria-label="Nachricht an Vincent"></textarea>
+      <button id="btn-mic" class="round-btn mic" type="button" aria-label="Zuhören">
+        <svg class="ico"><use href="#i-mic"/></svg>
+      </button>
+      <button id="btn-send" class="round-btn send" type="submit" aria-label="Senden" disabled>
+        <svg class="ico"><use href="#i-send"/></svg>
+      </button>
+    </form>
+  </section>
+</body>
+</html>

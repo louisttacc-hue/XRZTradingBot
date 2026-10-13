@@ -65,7 +65,7 @@ export function createAppearance(ctx) {
     onChange: (v) => save({ appearance: { show_subtitles: v } }, v ? 'Untertitel an.' : 'Untertitel aus.'),
   });
 
-  const previewOrb = h('div', { class: 'swatch preview-orb' });
+  const previewOrb = h('div', { class: 'swatch preview-orb' }, h('span', { class: 'swatch-core' }));
   const preview = h('div', { class: 'preview-stage', 'aria-hidden': 'true' },
     h('div', { class: 'preview-window' }, h('i'), h('i'), h('i')), previewOrb);
 

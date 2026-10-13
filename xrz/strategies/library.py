@@ -32,13 +32,9 @@ ALL_REGIMES = ["aufwärts", "abwärts", "seitwärts"]
 # --------------------------------------------------------------------------- #
 # Positions-Helfer
 # --------------------------------------------------------------------------- #
-def _bool(x: Any, size: int | None = None) -> np.ndarray:
-    """Beliebige Maske (Series/Array/Skalar) → bool-Array, NaN → False."""
-    if np.isscalar(x):
-        return np.full(size or 0, bool(x))
-    if isinstance(x, pd.Series):
-        x = x.to_numpy()
-    a = np.asarray(x)
+def _bool(x: Any) -> np.ndarray:
+    """Maske (Series/Array) → bool-Array, NaN → False."""
+    a = np.asarray(x.to_numpy() if isinstance(x, pd.Series) else x)
     if a.dtype != bool:
         a = np.asarray(pd.Series(a).fillna(False), dtype=bool)
     return a
@@ -96,9 +92,9 @@ def managed_positions(
     """
     c = _float(close, len(close))
     size = len(c)
-    le, se = _bool(long_entry, size), _bool(short_entry, size)
-    lx = _bool(long_exit, size) if long_exit is not None else np.zeros(size, bool)
-    sx = _bool(short_exit, size) if short_exit is not None else np.zeros(size, bool)
+    le, se = _bool(long_entry), _bool(short_entry)
+    lx = _bool(long_exit) if long_exit is not None else np.zeros(size, bool)
+    sx = _bool(short_exit) if short_exit is not None else np.zeros(size, bool)
     ls, lt, ss, st = (_float(x, size) for x in (long_stop, long_target, short_stop, short_target))
     tr = _float(trail, size)
     has_ls, has_lt, has_ss, has_st = (x is not None for x in (long_stop, long_target, short_stop, short_target))
@@ -250,6 +246,10 @@ def _dir_word(v: float) -> str:
 def _last(s: pd.Series | np.ndarray) -> float:
     v = s.iloc[-1] if isinstance(s, pd.Series) else s[-1]
     return float(v) if v is not None and not pd.isna(v) else float("nan")
+
+
+def _ago(bars: int) -> str:
+    return "auf der aktuellen Kerze" if bars == 0 else "vor 1 Kerze" if bars == 1 else f"vor {bars} Kerzen"
 
 
 def _rel(a: float, b: float) -> str:
@@ -717,7 +717,7 @@ def _rsi_divergence(df: pd.DataFrame, p: dict[str, Any]):
         entries[side][hit] = True
         stops[side][hit] = price[1:][div]
         if len(hit) and size - 1 - hit[-1] <= 10:
-            last_div = f"{'bullische' if side == 1 else 'bärische'} Divergenz vor {size - 1 - hit[-1]} Kerzen, "
+            last_div = f"{'bullische' if side == 1 else 'bärische'} Divergenz {_ago(size - 1 - hit[-1])}, "
     pos = managed_positions(
         entries[1], entries[-1], c, long_stop=stops[1], short_stop=stops[-1],
         long_exit=r > p["exit"], short_exit=r < 100 - p["exit"], max_hold=p["hold"],
@@ -889,11 +889,15 @@ def _candle_strategy(bull: tuple[str, ...], bear: tuple[str, ...], reversal: boo
         recent = [(int(np.flatnonzero(m)[-1]), n) for n, m in hits.items() if m.any()]
         if recent and size - 1 - max(recent)[0] <= 20:
             i, n = max(recent)
-            seen = f"{pat.PATTERNS[n].label} vor {size - 1 - i} Kerzen"
+            seen = f"{pat.PATTERNS[n].label} {_ago(size - 1 - i)}"
         else:
             seen = "kein Muster in den letzten 20 Kerzen"
-        trend = "aus" if p["trend"] <= 0 else ("steigt" if bool(up.iloc[-1]) else "fällt" if bool(down.iloc[-1]) else "flach")
-        return pos, f"{seen}; Trendfilter EMA{p['trend']} {trend} → {_dir_word(pos[-1])}"
+        if p["trend"] <= 0:
+            trend = "Trendfilter aus"
+        else:
+            slope = "steigt" if bool(up.iloc[-1]) else "fällt" if bool(down.iloc[-1]) else "flach"
+            trend = f"EMA{p['trend']} {slope}"
+        return pos, f"{seen}; {trend} → {_dir_word(pos[-1])}"
 
     return fn
 
@@ -931,8 +935,8 @@ STRATEGIES: dict[str, Strategy] = {
         ),
         Strategy(
             "ichimoku", "Ichimoku-Wolke",
-            "Long über der Wolke bei Tenkan > Kijun und Kurs über dem Kurs vor 26 Kerzen (Chikou-Ersatz ohne "
-            "Zukunftsdaten); Ausstieg unter Kijun.",
+            "Long über der Wolke bei Tenkan > Kijun und Schluss über dem Kurs vor Kijun-Länge Kerzen (Chikou-Ersatz "
+            "ohne Zukunftsdaten); Ausstieg unter Kijun.",
             {"tenkan": 9, "kijun": 26},
             {"tenkan": [7, 9, 12], "kijun": [22, 26, 34]},
             _ichimoku, TREND, "Trend",

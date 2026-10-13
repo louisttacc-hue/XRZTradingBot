@@ -145,12 +145,12 @@ function updateTrayMenu() {
   if (!tray || tray.isDestroyed()) return;
   const status = backend ? backend.info() : null;
   const ready = status?.status === 'ready';
-  tray.setToolTip(status ? `XRZ Vincent – ${status.message}` : 'XRZ Vincent');
+  tray.setToolTip(status ? `XRZ Vincent – ${status.message.split('\n')[0]}` : 'XRZ Vincent');
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: 'Vincent zeigen/verstecken', click: toggleOverlay },
       { label: 'Zentrale öffnen', click: openZentrale },
-      { label: 'Zuhören (⌥ Leertaste)', enabled: ready && !micMuted, click: listen },
+      { label: 'Zuhören (⌥ Leertaste)', enabled: ready, click: listen },
       { label: 'Mikrofon stumm', type: 'checkbox', checked: micMuted, enabled: ready, click: (item) => void setMuted(item.checked) },
       { type: 'separator' },
       { label: 'Beenden', click: () => app.quit() },
@@ -174,13 +174,13 @@ function registerShortcuts() {
     ['Alt+Shift+S', stopVoice],
   ];
   for (const [accelerator, handler] of shortcuts) {
-    let ok = false;
     try {
-      ok = globalShortcut.register(accelerator, handler);
+      if (!globalShortcut.register(accelerator, handler)) {
+        console.warn(`[main] Tastenkürzel ${accelerator} ist bereits belegt und wurde nicht registriert.`);
+      }
     } catch (err) {
       console.warn(`[main] Tastenkürzel ${accelerator} ungültig: ${err.message}`);
     }
-    if (!ok) console.warn(`[main] Tastenkürzel ${accelerator} ist bereits belegt und wurde nicht registriert.`);
   }
 }
 

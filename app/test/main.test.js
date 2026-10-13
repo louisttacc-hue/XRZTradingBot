@@ -224,6 +224,37 @@ describe('computeOverlayBounds / shiftWithin', () => {
     assert.equal(windows.shiftWithin(b, workArea, 1000).y, 25 + 920 - 680);
   });
 
+  it('blockiert neue Fenster und Navigation weg von der App (harden)', () => {
+    const handlers = {};
+    let openHandler = null;
+    const wc = {
+      setWindowOpenHandler: (fn) => {
+        openHandler = fn;
+      },
+      on: (name, fn) => {
+        handlers[name] = fn;
+      },
+    };
+    windows.harden(wc);
+    fakeElectron.shell.opened.length = 0;
+    assert.deepEqual(openHandler({ url: 'https://de.tradingview.com/' }), { action: 'deny' });
+    assert.deepEqual(openHandler({ url: 'file:///etc/passwd' }), { action: 'deny' });
+    assert.deepEqual(fakeElectron.shell.opened, ['https://de.tradingview.com/']);
+
+    const nav = (url) => {
+      let prevented = false;
+      handlers['will-navigate']({ preventDefault: () => (prevented = true) }, url);
+      return prevented;
+    };
+    assert.equal(nav(`${windows.RENDERER_URL}zentrale/index.html`), false);
+    assert.equal(nav('file:///etc/passwd'), true);
+    assert.equal(nav('https://example.com/'), true);
+    assert.deepEqual(fakeElectron.shell.opened, ['https://de.tradingview.com/', 'https://example.com/']);
+    let webviewBlocked = false;
+    handlers['will-attach-webview']({ preventDefault: () => (webviewBlocked = true) });
+    assert.ok(webviewBlocked);
+  });
+
   it('erkennt eigene Renderer-URLs und Web-Links', () => {
     assert.ok(windows.isAppUrl(`${windows.RENDERER_URL}overlay/index.html`));
     assert.ok(!windows.isAppUrl('file:///etc/passwd'));
