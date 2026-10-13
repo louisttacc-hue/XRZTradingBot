@@ -277,7 +277,7 @@ class Consolidator:
             summary = await self._summary(day, channel, items)
             self.store.add_summary(day, channel, summary)
             date = time.strftime("%d.%m.%Y", time.strptime(day, "%Y-%m-%d"))
-            await self.mm.remember_internal(
+            await self.mm.store_memory(
                 f"Gespräch am {date} ({channel}): {summary}", "ereignis", 0.35, "episoden", confidence=0.7
             )
             self.store.mark_summarized(e["id"] for e in items)

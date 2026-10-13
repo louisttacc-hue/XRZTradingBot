@@ -84,6 +84,7 @@ function openExternalSafe(url) {
 
 /**
  * Keine neuen Fenster, keine Navigation weg von den eigenen Seiten; Web-Links gehen in den Standardbrowser.
+ * Wird in main.js für jeden neuen WebContents aufgerufen ('web-contents-created').
  * @param {Electron.WebContents} wc
  */
 function harden(wc) {
@@ -160,7 +161,6 @@ function createOverlay(opts = {}) {
   win.setAlwaysOnTop(true, 'floating');
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.setIgnoreMouseEvents(true, { forward: true });
-  harden(win.webContents);
   dockOverlay();
 
   const redock = () => dockOverlay();
@@ -220,7 +220,6 @@ function createZentrale() {
 
   const win = new BrowserWindow(options);
   zentrale = win;
-  harden(win.webContents);
   win.once('ready-to-show', () => {
     if (win.isDestroyed()) return;
     win.show();
@@ -306,6 +305,7 @@ module.exports = {
   shiftWithin,
   isAppUrl,
   isWebUrl,
+  harden,
   createOverlay,
   createZentrale,
   getOverlay,

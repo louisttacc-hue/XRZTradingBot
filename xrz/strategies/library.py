@@ -870,29 +870,26 @@ def _candle_strategy(bull: tuple[str, ...], bear: tuple[str, ...], reversal: boo
 
     def fn(df: pd.DataFrame, p: dict[str, Any]):
         c = df["close"]
-        bull_m = np.zeros(len(df), bool)
-        bear_m = np.zeros(len(df), bool)
-        for n in bull:
-            bull_m |= pat.PATTERNS[n].fn(df).to_numpy(dtype=bool)
-        for n in bear:
-            bear_m |= pat.PATTERNS[n].fn(df).to_numpy(dtype=bool)
-        found = (bull_m | bear_m).copy()
+        size = len(df)
         if reversal:
             at_low = (df["low"].rolling(bars, min_periods=1).min() <= df["low"].rolling(10, min_periods=10).min()).to_numpy()
             at_high = (df["high"].rolling(bars, min_periods=1).max() >= df["high"].rolling(10, min_periods=10).max()).to_numpy()
-            bull_m &= at_low
-            bear_m &= at_high
+        else:
+            at_low = at_high = np.ones(size, bool)
+        hits = {n: pat.PATTERNS[n].fn(df).to_numpy(dtype=bool) & at_low for n in bull}
+        hits.update({n: pat.PATTERNS[n].fn(df).to_numpy(dtype=bool) & at_high for n in bear})
+        bull_m = np.logical_or.reduce([hits[n] for n in bull])
+        bear_m = np.logical_or.reduce([hits[n] for n in bear])
         up, down = _trend_ok(c, p["trend"])
         le = bull_m & up.to_numpy(dtype=bool)
         se = bear_m & down.to_numpy(dtype=bool)
         pos = managed_positions(
             le, se, c, trail=p["stop_atr"] * ind.atr(df), max_hold=p["hold"], long_exit=bear_m, short_exit=bull_m
         )
-        hits = np.flatnonzero(found)
-        if len(hits) and len(df) - 1 - hits[-1] <= 20:
-            i = hits[-1]
-            names = [pat.PATTERNS[n].label for n in bull + bear if pat.PATTERNS[n].fn(df.iloc[: i + 1]).iloc[-1]]
-            seen = f"{', '.join(names)} vor {len(df) - 1 - i} Kerzen"
+        recent = [(int(np.flatnonzero(m)[-1]), n) for n, m in hits.items() if m.any()]
+        if recent and size - 1 - max(recent)[0] <= 20:
+            i, n = max(recent)
+            seen = f"{pat.PATTERNS[n].label} vor {size - 1 - i} Kerzen"
         else:
             seen = "kein Muster in den letzten 20 Kerzen"
         trend = "aus" if p["trend"] <= 0 else ("steigt" if bool(up.iloc[-1]) else "fällt" if bool(down.iloc[-1]) else "flach")

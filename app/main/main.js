@@ -292,6 +292,7 @@ async function cleanup() {
   cleanupDone = true;
 }
 
+/** Registriert alle App-Ereignisse; läuft nur in der ersten Instanz. */
 function main() {
   app.on('before-quit', (event) => {
     windows.setQuitting(true);
@@ -321,6 +322,9 @@ function main() {
 
   // Overlay kann versteckt sein – beenden nur über Tray, Menü oder ⌘Q.
   app.on('window-all-closed', () => {});
+
+  // Jeder WebContents (auch künftige) darf keine Fenster öffnen und nicht wegnavigieren.
+  app.on('web-contents-created', (_event, contents) => windows.harden(contents));
 
   app.whenReady().then(async () => {
     buildAppMenu();
