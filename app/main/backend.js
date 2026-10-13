@@ -274,9 +274,16 @@ class BackendLog {
     return all.slice(-n);
   }
 
+  /** @returns {Promise<void>} erfüllt, sobald alles geschrieben ist */
   close() {
-    if (this.stream) this.stream.end();
+    const stream = this.stream;
     this.stream = null;
+    if (!stream) return Promise.resolve();
+    return new Promise((resolve) => {
+      stream.once('close', resolve);
+      stream.once('error', resolve);
+      stream.end();
+    });
   }
 }
 
@@ -519,7 +526,7 @@ class BackendSupervisor extends EventEmitter {
     this.clearTimers();
     await this.terminateChild();
     if (this.status !== 'stopped') this.setStatus('stopped', 'Vincent wurde beendet.');
-    this.log.close();
+    await this.log.close();
   }
 
   /** Letzter Ausweg bei hartem Prozessende (synchron): Kindprozess sofort töten. */

@@ -12,7 +12,7 @@
     "dist": "electron-builder --mac dmg zip",
     "dist:dir": "electron-builder --mac dir",
     "icons": "node scripts/make-icons.js",
-    "test": "node --test test/"
+    "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test test/*.test.js"
   },
   "devDependencies": {
     "electron": "^44.5.0",

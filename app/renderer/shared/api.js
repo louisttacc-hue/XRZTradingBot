@@ -44,6 +44,12 @@ function bridge() {
   return typeof window !== 'undefined' && window.vincent ? window.vincent : null;
 }
 
+/** @returns {boolean} true, wenn der Preload Backend-Statusänderungen meldet */
+function hasStatusEvents() {
+  const v = bridge();
+  return Boolean(v && typeof v.onBackendStatus === 'function');
+}
+
 /**
  * Port/Token des Backends ermitteln (Preload oder URL-Parameter).
  * @returns {Promise<BackendInfo>}
@@ -134,7 +140,8 @@ async function openSocket() {
   }
   conn.info = info;
   if (!info.port || (info.status && info.status !== 'ready')) {
-    scheduleReconnect();
+    // Mit Preload meldet onBackendStatus das nächste "ready" – sonst selbst erneut versuchen.
+    if (!hasStatusEvents()) scheduleReconnect();
     return;
   }
   if (conn.ws) return; // parallel geöffnet
@@ -194,9 +201,8 @@ export function connect() {
   conn.firstOpen = new Promise((resolve) => {
     conn.resolveFirstOpen = resolve;
   });
-  const v = bridge();
-  if (v && typeof v.onBackendStatus === 'function') {
-    v.onBackendStatus((info) => {
+  if (hasStatusEvents()) {
+    bridge().onBackendStatus((info) => {
       dispatch({ type: 'backend', data: info, ts: Date.now() / 1000 });
       if (!info) return;
       if (info.status === 'ready') {
@@ -208,6 +214,7 @@ export function connect() {
         }
       } else {
         conn.info = info;
+        clearTimers();
         dropSocket();
       }
     });
