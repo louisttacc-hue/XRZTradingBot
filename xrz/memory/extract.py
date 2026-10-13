@@ -48,7 +48,7 @@ _SECRET_PATTERNS = [
     re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)", re.S),
     re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){3,7}(?: ?[A-Z0-9]{1,3})?\b"),  # IBAN
     # lange Zufallszeichenketten aus Buchstaben UND Ziffern (Schlüssel, Hashes)
-    re.compile(r"\b(?=[A-Za-z0-9_\-]*\d)(?=[A-Za-z0-9_\-]*[A-Za-z])[A-Za-z0-9_\-]{32,}\b"),
+    re.compile(r"\b(?=[A-Za-z0-9_]*\d)(?=[A-Za-z0-9_]*[A-Za-z])[A-Za-z0-9_]{32,}\b"),
 ]
 # "Passwort ist …", "PIN: …" – jedes Wort danach ist geheim
 _STRONG_KW = re.compile(
@@ -199,6 +199,7 @@ class Operation:
     category: str | None = None
     importance: float | None = None
     id: int | None = None
+    confidence: float = 0.8  # KI-Extraktion 0,8; ausdrücklicher Merk-Wunsch 0,9
 
 
 _SMALL_TALK = re.compile(
@@ -336,7 +337,7 @@ def parse_operations(raw: str, valid_ids: set[int]) -> list[Operation]:
     return out
 
 
-_SENT_END = re.compile(r"(?<!\d)[.!?](?!\d)|\n")
+_SENT_END = re.compile(r"[.!?](?=\s+[A-ZÄÖÜ]|\s*$)|\n")
 
 
 def _clause(rest: str) -> str:
@@ -385,25 +386,27 @@ def heuristic_operations(user_text: str) -> list[Operation]:
     for rx in _NAME_RES:
         m = rx.search(text)
         if m:
-            ops.append(Operation("ADD", f"Der Nutzer heißt {m.group('x').strip()}.", "profil", 0.9))
+            ops.append(Operation("ADD", f"Der Nutzer heißt {m.group('x').strip()}.", "profil", 0.9, confidence=0.9))
             break
     m = _RULE_RE.search(text)
     if m and not _question(text, m.start("x")):
         clause = _clause(m.group("x"))
         if len(clause) >= 3:
-            ops.append(Operation("ADD", f"Regel des Nutzers: {clause}.", "regel", 0.9))
+            ops.append(Operation("ADD", f"Regel des Nutzers: {clause}.", "regel", 0.9, confidence=0.9))
     m = _LIKE_RE.search(text)
     if m and not _question(text, m.start("x")):
         clause = _clause(m.group("x"))
         if len(clause) >= 2:
-            ops.append(Operation("ADD", f"Der Nutzer {_VERB3[m.group('v').lower()]} {clause}.", "vorliebe", 0.7))
+            ops.append(
+                Operation("ADD", f"Der Nutzer {_VERB3[m.group('v').lower()]} {clause}.", "vorliebe", 0.7, confidence=0.9)
+            )
     if not ops:
         for rx in _REMEMBER_RES:
             m = rx.search(text)
             if m:
                 clause = _clause(m.group("x"))
                 if len(clause) >= 3:
-                    ops.append(Operation("ADD", f"Nutzer: {clause}.", _guess_category(clause), 0.8))
+                    ops.append(Operation("ADD", f"Nutzer: {clause}.", _guess_category(clause), 0.8, confidence=0.9))
                 break
     return [o for o in ops if not contains_secret(o.text)]
 

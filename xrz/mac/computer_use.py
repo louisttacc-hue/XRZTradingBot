@@ -277,7 +277,8 @@ class MacExecutor:
             combos = parse_key_sequence(args.get("text") if isinstance(args.get("text"), str) else "")
         except ValueError as exc:
             raise ActionError(str(exc)) from exc
-        repeat = args.get("repeat") or 1
+        repeat = args.get("repeat")
+        repeat = 1 if repeat is None else repeat
         if isinstance(repeat, bool) or not isinstance(repeat, int) or not 1 <= repeat <= 100:
             raise ActionError("'repeat' must be an integer between 1 and 100")
         for _ in range(repeat):
@@ -455,27 +456,31 @@ async def _run_batch(tool_uses: list[Any], executor: ComputerExecutor, on_step: 
             return batch
         name, args = str(_get(block, "name", "")), _input_args(block)
         await _report(on_step, describe_action(name, args))
-        error = ""
         try:
             output = await asyncio.wait_for(executor.execute(name, args, should_stop), ACTION_TIMEOUT)
-        except ActionError as exc:
-            error = str(exc) or "Action failed"
-        except ScreenCaptureError as exc:
-            error = batch.fatal = str(exc)
-        except asyncio.TimeoutError:
-            error = f"Action timed out after {ACTION_TIMEOUT} s"
         except Exception as exc:
-            log.exception("Computer-Aktion %s fehlgeschlagen", name)
-            error = f"Action failed: {exc}"
-        if error:
             failed = True
-            batch.results.append(_result(tool_id, error, is_error=True))
-        elif output.image is not None:
+            batch.results.append(_result(tool_id, _action_error_text(name, exc, batch), is_error=True))
+            continue
+        if output.image is not None:
             batch.images += 1
             batch.results.append(_result(tool_id, _image_content(output.image)))
         else:
             batch.results.append(_result(tool_id, output.text or "OK"))
     return batch
+
+
+def _action_error_text(name: str, exc: Exception, batch: _Batch) -> str:
+    """Fehlertext für Claude; fehlende Bildschirmfotos beenden die ganze Aufgabe."""
+    if isinstance(exc, ActionError):
+        return str(exc) or "Action failed"
+    if isinstance(exc, ScreenCaptureError):
+        batch.fatal = str(exc)
+        return batch.fatal
+    if isinstance(exc, asyncio.TimeoutError):
+        return f"Action timed out after {ACTION_TIMEOUT} s"
+    log.error("Computer-Aktion %s fehlgeschlagen", name, exc_info=exc)
+    return f"Action failed: {exc}"
 
 
 async def run_computer_task(client: Any, model: str, effort: str, goal: str, executor: ComputerExecutor,

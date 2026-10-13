@@ -114,7 +114,8 @@ class MacControl:
             return blocked
         name = (name or "").strip()
         if not valid_app_name(name):
-            return "Diesen App-Namen kann ich nicht öffnen (nur Buchstaben, Ziffern, Leerzeichen, Punkt, Binde- und Unterstrich)."
+            return ("Diesen App-Namen kann ich nicht öffnen "
+                    "(nur Buchstaben, Ziffern, Leerzeichen, Punkt, Binde- und Unterstrich).")
         code, out = await run_command("open", "-a", name, timeout=20)
         if code != 0:
             log.info("App %s nicht geöffnet: %s", name, out)
