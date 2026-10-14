@@ -62,7 +62,7 @@ bold "5/7 Spracherkennung & Stimme vorbereiten (einmalig, kann ein paar Minuten 
 "$VENV/bin/python" -m xrz prefetch || echo "Hinweis: Modelle werden beim ersten Start nachgeladen."
 
 # 6) App bauen ------------------------------------------------------------------------
-bold "6/7 App „$APP_NAME“ bauen …"
+bold "6/7 App „${APP_NAME}“ bauen …"
 mkdir -p app/build
 cat > app/build/backend.json <<JSON
 {"python": "$VENV/bin/python", "cwd": "$SUPPORT"}
@@ -85,7 +85,7 @@ xattr -cr "/Applications/$APP_NAME.app" || true
 
 bold "✅ Fertig!"
 cat <<TXT
-Starte „$APP_NAME“ aus dem Programme-Ordner (oder Spotlight: ⌘ Leertaste → Vincent).
+Starte „${APP_NAME}“ aus dem Programme-Ordner (oder Spotlight: ⌘ Leertaste → Vincent).
 
 Beim ersten Start:
   • Mikrofon erlauben (für „Hey Vincent“)
@@ -93,7 +93,7 @@ Beim ersten Start:
     (ElevenLabs = sehr realistische Stimme, Claude = deutlich schlauer + Mac-Steuerung)
   • Zentrale → TradingView → „Verbinden“ (Vincent startet die TradingView-App einmal mit Steuer-Port neu)
   • Für Mac-Steuerung: Systemeinstellungen → Datenschutz & Sicherheit →
-      Bedienungshilfen und Bildschirmaufnahme → „$APP_NAME“ erlauben
+      Bedienungshilfen und Bildschirmaufnahme → „${APP_NAME}“ erlauben
 
 Sprich: „Hey Vincent, wie sieht der Markt aus?“  (oder ⌥ Leertaste zum Sprechen)
 TXT
