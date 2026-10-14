@@ -63,6 +63,10 @@ class TradingSettings(BaseModel):
     # (Paper immer möglich, Echtgeld nur mit freigeschaltetem Echtgeld-Autopiloten)
     autonomy: Literal["ask", "auto"] = "ask"
     proposal_timeout_minutes: int = 10
+    # Den Markt analysieren, der gerade in TradingView offen ist (zusätzlich zur Watchlist)
+    follow_chart: bool = True
+    # vorsichtig = nur sehr klare Signale · ausgewogen = Standard · aktiv = mehr Trades (Risiko-Grenzen bleiben)
+    trading_style: Literal["vorsichtig", "ausgewogen", "aktiv"] = "ausgewogen"
     account_size_fallback: float = 10_000.0  # falls der Kontostand nicht aus TradingView lesbar ist
 
     @field_validator("watchlist")
@@ -113,7 +117,9 @@ class AISettings(BaseModel):
     ollama_think: bool = False  # "Nachdenken" lokaler Modelle (langsamer, teils besser)
     ollama_num_ctx: int = 8192
     anthropic_model: str = "claude-opus-5-5"
-    anthropic_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"
+    anthropic_effort: Literal["low", "medium", "high", "xhigh", "max"] = "medium"  # Analysen, Trade-Prüfung
+    anthropic_chat_effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"  # Gespräch: schnell antworten
+    anthropic_fast_mode: bool = False  # bis zu 2,5× schnellere Antworten, doppelter Preis
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-5-mini"
     temperature: float = 0.3
@@ -172,6 +178,7 @@ class VoiceSettings(BaseModel):
     piper_voice: str = "de_DE-thorsten-high"
     macos_voice: str = ""  # leer = beste installierte deutsche Stimme
     speak_replies: bool = True  # Antworten vorlesen (auch bei getippten Fragen)
+    robot_effect: float = 0.35  # Cyborg-Stimmfilter: 0 = natürlich, 1 = stark metallisch
     input_device: str = ""
     output_device: str = ""
 
@@ -184,7 +191,7 @@ class MemorySettings(BaseModel):
 
 
 class AppearanceSettings(BaseModel):
-    skin: str = "mensch"  # mensch | nebula | hologramm | neon | glas | roboter | eigenes
+    skin: str = "cyborg"  # cyborg (3D) | mensch | nebula | hologramm | neon | glas | roboter | eigenes
     accent: str = "#7c5cff"
     size: int = 132
     edge: Literal["right", "left"] = "right"
@@ -230,6 +237,9 @@ TELEGRAM_EDITABLE = {
     "trading.allow_short",
     "trading.use_ai_review",
     "trading.autonomy",
+    "trading.trading_style",
+    "trading.follow_chart",
+    "voice.robot_effect",
     "voice.wake_word_enabled",
     "voice.speak_replies",
     "voice.tts_provider",
