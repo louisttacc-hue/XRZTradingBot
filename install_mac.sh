@@ -53,6 +53,8 @@ ollama pull nomic-embed-text
 from xrz.config import ConfigManager
 c = ConfigManager()
 c.settings.ai.ollama_model = "$MODEL"
+if $RAM_GB < 16:
+    c.settings.ai.ollama_num_ctx = 4096  # spart ~0,6 GB Arbeitsspeicher
 c.save()
 print("Einstellungen:", c.data_dir)
 PYEOF
@@ -78,7 +80,10 @@ cd "$ROOT"
 
 # 7) Installieren ------------------------------------------------------------------------
 bold "7/7 Nach /Applications kopieren …"
-osascript -e "tell application \"$APP_NAME\" to quit" >/dev/null 2>&1 || true
+if pgrep -xq "$APP_NAME"; then
+  osascript -e "tell application \"$APP_NAME\" to quit" >/dev/null 2>&1 || true
+  sleep 1
+fi
 rm -rf "/Applications/$APP_NAME.app"
 cp -R "app/$APP_SRC" "/Applications/"
 xattr -cr "/Applications/$APP_NAME.app" || true
