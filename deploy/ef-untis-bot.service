@@ -1,0 +1,52 @@
+# systemd-Dienst für den EF-Untis-WhatsApp-Bot.
+# Wird von install.sh nach /etc/systemd/system/ef-untis-bot.service kopiert
+# (@INSTALL_DIR@, @SERVICE_USER@ und @NODE_BIN@ werden dabei ersetzt).
+
+[Unit]
+Description=EF Untis WhatsApp Bot (Vertretungsplan-Benachrichtigungen)
+Documentation=file://@INSTALL_DIR@/README.md
+After=network-online.target
+Wants=network-online.target
+# Nie endgültig aufgeben – ein Schul-Bot soll auch nach längeren Störungen wieder laufen
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=@SERVICE_USER@
+Group=@SERVICE_USER@
+WorkingDirectory=@INSTALL_DIR@
+Environment=NODE_ENV=production
+Environment=TZ=Europe/Berlin
+ExecStart=@NODE_BIN@ @INSTALL_DIR@/dist/index.js
+Restart=always
+RestartSec=15
+# Exit-Code 78 = Konfigurationsfehler (.env) → nicht sinnlos neu starten
+RestartPreventExitStatus=78
+KillSignal=SIGTERM
+TimeoutStopSec=20
+UMask=0077
+
+# Härtung: Der Bot darf nur in sein Datenverzeichnis schreiben
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=@INSTALL_DIR@/data
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+MemoryMax=600M
+
+[Install]
+WantedBy=multi-user.target

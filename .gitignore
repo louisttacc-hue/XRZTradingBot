@@ -1,0 +1,10 @@
+node_modules/
+dist/
+coverage/
+# Laufzeitdaten: WhatsApp-Sitzung (= Zugriff auf das Konto!), Datenbank, QR-Code
+data/
+# Zugangsdaten
+.env
+.env.*
+!.env.example
+*.log

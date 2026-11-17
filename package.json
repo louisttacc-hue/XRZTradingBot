@@ -1,0 +1,42 @@
+{
+  "name": "ef-untis-whatsapp-bot",
+  "version": "1.0.0",
+  "description": "WhatsApp-Bot für die EF am Gymnasium Jüchen: überwacht WebUntis und meldet Entfall, Vertretungen, Raumwechsel und Stundenplanänderungen.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "dev": "tsx src/index.ts",
+    "setup": "node dist/setup.js",
+    "check:untis": "node dist/scripts/check-untis.js",
+    "find-school": "node dist/scripts/find-school.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "baileys": "7.0.0-rc14",
+    "better-sqlite3": "^13.2.0",
+    "dotenv": "^18.0.10",
+    "otplib": "^12.0.1",
+    "pino": "^10.4.0",
+    "pino-pretty": "^13.2.0",
+    "qrcode": "^1.5.4",
+    "webuntis": "^2.2.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^22.20.5",
+    "@types/qrcode": "^1.5.6",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}
