@@ -267,6 +267,13 @@ export class Store {
     this.db.prepare('DELETE FROM sent_messages WHERE created_at < ?').run(Date.now() - 7 * 86_400_000);
   }
 
+  /** Stammt diese WhatsApp-Nachrichten-ID vom Bot selbst? (Outbox oder gesendete Antworten) */
+  isBotMessageId(id: string): boolean {
+    return Boolean(
+      this.db.prepare('SELECT 1 FROM sent_messages WHERE id = ? UNION SELECT 1 FROM outbox WHERE message_id = ? LIMIT 1').get(id, id),
+    );
+  }
+
   getSentMessage<T = unknown>(id: string): T | undefined {
     const row = this.db.prepare('SELECT content FROM sent_messages WHERE id = ?').get(id) as { content: string } | undefined;
     return row ? (JSON.parse(row.content) as T) : undefined;

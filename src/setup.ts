@@ -28,7 +28,12 @@ async function main(): Promise<void> {
   const store = new Store(join(config.dataDir, 'bot.db'));
 
   console.log('\n🤖 Einrichtung des EF-Vertretungsplan-Bots');
-  console.log('   Halte das Handy mit der BOT-Nummer bereit (nicht deine private Nummer!).\n');
+  if (config.whatsapp.ownNumber) {
+    console.log('   Der Bot läuft als verknüpftes Gerät auf DEINER WhatsApp-Nummer (wie WhatsApp Web).');
+    console.log('   Halte dein Handy bereit. Bot-Nachrichten beginnen mit 🤖, dein Handy funktioniert normal weiter.\n');
+  } else {
+    console.log('   Halte das Handy mit der BOT-Nummer bereit (nicht deine private Nummer).\n');
+  }
 
   const timeout = setTimeout(() => {
     console.error('\n⏱️  Keine Verbindung innerhalb von 5 Minuten. Bitte erneut versuchen: npm run setup');
@@ -83,28 +88,42 @@ async function main(): Promise<void> {
       }
     }
 
-    const groups = await b.listGroups();
+    let groups = await b.listGroups();
+    if (groups.length > 12 && process.stdin.isTTY && !argValue('--group')) {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      const term = (await rl.question(`\nDu bist in ${groups.length} Gruppen. Suchbegriff für die Klassengruppe (z. B. EF, Enter = alle): `)).trim();
+      rl.close();
+      if (term) {
+        const filtered = groups.filter((g) => (g.subject ?? '').toLowerCase().includes(term.toLowerCase()));
+        if (filtered.length) groups = filtered;
+        else console.log('   Keine Treffer – zeige alle Gruppen.');
+      }
+    }
     if (groups.length === 0) {
-      console.log('\n⚠️  Die Bot-Nummer ist noch in keiner Gruppe.');
+      console.log('\n⚠️  Diese Nummer ist noch in keiner Gruppe.');
       console.log('   → Bot-Nummer zur Klassengruppe hinzufügen ODER WHATSAPP_GROUP_INVITE in .env setzen,');
       console.log('     dann "npm run setup" erneut ausführen. (Die WhatsApp-Kopplung bleibt gespeichert.)');
       return;
     }
 
-    console.log('\nGruppen der Bot-Nummer:');
+    console.log('\nGruppen:');
     groups.forEach((g, i) => console.log(`  [${i + 1}] ${g.subject}  (${g.participants?.length ?? '?'} Mitglieder)  ${g.id}`));
     if (args.includes('--list')) return;
 
     let chosen = groups.find((g) => g.id === argValue('--group'));
     if (!chosen && process.stdin.isTTY) {
       const current = groups.findIndex((g) => g.id === b.groupJid);
-      const def = current >= 0 ? current + 1 : 1;
+      // Auf der privaten Nummer gibt es ohne bisherige Wahl keinen Standard – bewusst auswählen!
+      const def = current >= 0 ? current + 1 : config.whatsapp.ownNumber ? undefined : 1;
       const rl = createInterface({ input: process.stdin, output: process.stdout });
-      const answer = await rl.question(`\nWelche Gruppe ist die Klassengruppe? Nummer [${def}]: `);
+      for (let attempt = 0; attempt < 3 && !chosen; attempt++) {
+        const answer = (await rl.question(`\nWelche Gruppe ist die Klassengruppe? Nummer${def ? ` [${def}]` : ''}: `)).trim();
+        const n = Number(answer || def);
+        chosen = Number.isInteger(n) ? groups[n - 1] : undefined;
+        if (!chosen) console.log(`   Bitte eine Zahl von 1 bis ${groups.length} eingeben.`);
+      }
       rl.close();
-      const n = Number(answer.trim() || def);
-      chosen = groups[n - 1];
-    } else if (!chosen && groups.length === 1) {
+    } else if (!chosen && groups.length === 1 && !config.whatsapp.ownNumber) {
       chosen = groups[0];
     }
     if (!chosen) {
@@ -112,7 +131,10 @@ async function main(): Promise<void> {
       return;
     }
     b.selectGroup(chosen.id, chosen.subject);
-    console.log(`\n👍 Klassengruppe: „${chosen.subject}“`);
+    console.log(`\n👍 Klassengruppe: „${chosen.subject}“ – nur hier postet und antwortet der Bot.`);
+    if (config.whatsapp.ownNumber) {
+      console.log('   Tipp: Im Chat "Nachricht an mich selbst" kannst du privat /status, /heute usw. schicken.');
+    }
   }
 
   await bot.start();

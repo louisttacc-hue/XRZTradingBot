@@ -13,6 +13,8 @@ export interface OutboxSenderDeps {
   send: (chat: string, text: string, messageId: string) => Promise<void>;
   isConnected: () => boolean;
   defaultChat: () => string | undefined;
+  /** Eigener Chat ("Nachricht an mich selbst") – Ziel für chat = 'self'. */
+  selfChat?: () => string | undefined;
   newMessageId: () => string;
   /** Pause zwischen zwei Nachrichten (Spam-/Sperrschutz). */
   gapMs: () => number;
@@ -20,6 +22,8 @@ export interface OutboxSenderDeps {
 }
 
 const MAX_ATTEMPTS_BEFORE_PAUSE = 5;
+/** Platzhalter-Ziel für den eigenen Chat ("Nachricht an mich selbst"). */
+export const SELF_CHAT = 'self';
 
 export class OutboxSender {
   private flushing: Promise<void> | null = null;
@@ -53,11 +57,13 @@ export class OutboxSender {
     let warnedNoGroup = false;
     for (const msg of due) {
       if (!this.deps.isConnected()) return;
-      const chat = msg.chat ?? this.deps.defaultChat();
+      const chat = msg.chat === SELF_CHAT ? this.deps.selfChat?.() : (msg.chat ?? this.deps.defaultChat());
       if (!chat) {
-        if (!warnedNoGroup) logger.warn('Keine Klassengruppe bekannt – Gruppennachrichten warten (sudo ./install.sh --relink)');
-        warnedNoGroup = true;
-        continue; // Direktnachrichten (z. B. an Admins) trotzdem zustellen
+        if (msg.chat === null && !warnedNoGroup) {
+          logger.warn('Keine Klassengruppe gewählt – Gruppennachrichten warten (sudo ./install.sh --relink)');
+          warnedNoGroup = true;
+        }
+        continue; // andere Nachrichten (z. B. an Admins) trotzdem zustellen
       }
       if (msg.attempts >= MAX_ATTEMPTS_BEFORE_PAUSE && now() - msg.createdAt < msg.attempts * 60_000) continue;
 

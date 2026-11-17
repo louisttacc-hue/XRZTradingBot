@@ -31,6 +31,10 @@ export interface Config {
     groupInviteCode: string | undefined;
     pairingNumber: string | undefined;
     allowPrivateCommands: boolean;
+    /** Bot läuft als verknüpftes Gerät auf der eigenen, privaten WhatsApp-Nummer (keine zweite SIM). */
+    ownNumber: boolean;
+    /** Wird jeder Bot-Nachricht vorangestellt (Standard auf eigener Nummer: "🤖 "). */
+    messagePrefix: string;
   };
   adminNumbers: string[];
   pollIntervalMinutes: number;
@@ -79,6 +83,8 @@ const schema = z.object({
   WHATSAPP_GROUP_INVITE: text(),
   WHATSAPP_PAIRING_NUMBER: text(),
   ALLOW_PRIVATE_COMMANDS: bool(false),
+  WHATSAPP_OWN_NUMBER: bool(true),
+  BOT_MESSAGE_PREFIX: z.string().optional(),
   ADMIN_NUMBERS: text(),
   POLL_INTERVAL_MINUTES: int(5, 3, 120),
   LOOKAHEAD_DAYS: int(14, 1, 28),
@@ -172,6 +178,8 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       groupInviteCode: parseInvite(e.WHATSAPP_GROUP_INVITE),
       pairingNumber: e.WHATSAPP_PAIRING_NUMBER ? normalizePhone(e.WHATSAPP_PAIRING_NUMBER) : undefined,
       allowPrivateCommands: e.ALLOW_PRIVATE_COMMANDS,
+      ownNumber: e.WHATSAPP_OWN_NUMBER,
+      messagePrefix: e.BOT_MESSAGE_PREFIX ?? (e.WHATSAPP_OWN_NUMBER ? '🤖 ' : ''),
     },
     adminNumbers: e.ADMIN_NUMBERS.split(',').map(normalizePhone).filter(Boolean),
     pollIntervalMinutes: e.POLL_INTERVAL_MINUTES,

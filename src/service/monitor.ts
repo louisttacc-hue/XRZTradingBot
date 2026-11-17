@@ -6,6 +6,7 @@ import { detectChanges, notableState } from '../domain/detector.js';
 import { addDays, schoolNow } from '../domain/time.js';
 import type { TimeUnit, UntisDate, UntisTime } from '../domain/types.js';
 import { buildNotifications } from '../format/messages.js';
+import { SELF_CHAT } from '../bot/outbox-sender.js';
 import { normalizeLessons } from '../untis/normalize.js';
 import { UntisError, type UntisErrorKind, type UntisSource } from '../untis/source.js';
 
@@ -178,8 +179,12 @@ export class Monitor {
   }
 
   private alertAdmins(text: string, nowMs: number): void {
-    for (const number of this.deps.config.adminNumbers) {
-      this.deps.store.enqueue({ text, chat: `${number}@s.whatsapp.net`, notBefore: 0, expiresAt: nowMs + MESSAGE_TTL_MS });
+    const { config } = this.deps;
+    const chats = config.adminNumbers.map((n) => `${n}@s.whatsapp.net`);
+    // Auf der eigenen Nummer ohne Admin-Angabe: in den Chat "Nachricht an mich selbst"
+    if (chats.length === 0 && config.whatsapp.ownNumber) chats.push(SELF_CHAT);
+    for (const chat of chats) {
+      this.deps.store.enqueue({ text, chat, notBefore: 0, expiresAt: nowMs + MESSAGE_TTL_MS });
       this.alertQueued = true;
     }
   }
@@ -258,8 +263,11 @@ export function nextPollDelayMs(opts: {
 }
 
 function welcomeText(config: Config, known: number): string {
+  const intro = config.whatsapp.ownNumber
+    ? `👋 *Hallo ${config.displayName}!* Ab jetzt läuft über diesen Account ein Vertretungsplan-Bot. Alles, was mit 🤖 beginnt, ist automatisch.`
+    : `👋 *Hallo ${config.displayName}!* Ich bin euer Vertretungsplan-Bot.`;
   return [
-    `👋 *Hallo ${config.displayName}!* Ich bin euer Vertretungsplan-Bot.`,
+    intro,
     `Ich schaue alle ${config.pollIntervalMinutes} Minuten in WebUntis nach und melde hier automatisch Entfall, Vertretungen, Raumwechsel und Stundenplanänderungen für *alle* ${config.displayName}-Kurse.`,
     '',
     `Aktuell bekannt: ${known === 1 ? '1 Änderung' : `${known} Änderungen`} in den nächsten ${config.lookaheadDays} Tagen → /entfall, /woche`,

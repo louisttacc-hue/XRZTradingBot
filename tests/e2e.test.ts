@@ -28,7 +28,8 @@ interface Sent {
 
 class FakeSocket {
   ev = new EventEmitter();
-  user = { id: '4915199999999:3@s.whatsapp.net' };
+  user = { id: '4915199999999:3@s.whatsapp.net', lid: '77777:3@lid' };
+  presenceCalls = 0;
   ended = false;
   constructor(private readonly log: Sent[]) {}
   async sendMessage(jid: string, content: { text: string }, options: { messageId?: string; quoted?: unknown } = {}) {
@@ -37,7 +38,9 @@ class FakeSocket {
     this.log.push(entry);
     return { key: { id: options.messageId ?? `AUTO${this.log.length}`, remoteJid: jid, fromMe: true }, message: { conversation: content.text } };
   }
-  async sendPresenceUpdate() {}
+  async sendPresenceUpdate() {
+    this.presenceCalls++;
+  }
   async groupFetchAllParticipating() {
     return { [GROUP]: { id: GROUP, subject: 'EF 2026/27', participants: [{ id: 'a' }, { id: 'b' }] } };
   }
@@ -53,10 +56,16 @@ class FakeSocket {
   close(statusCode: number) {
     this.ev.emit('connection.update', { connection: 'close', lastDisconnect: { error: Object.assign(new Error('closed'), { output: { statusCode } }) } });
   }
-  receive(text: string, chat = GROUP) {
+  receive(text: string, chat = GROUP, opts: { fromMe?: boolean; id?: string } = {}) {
     this.ev.emit('messages.upsert', {
       type: 'notify',
-      messages: [{ key: { remoteJid: chat, fromMe: false, id: `IN${Math.random()}`, participant: '1234@lid' }, messageTimestamp: Math.floor(Date.now() / 1000), message: { conversation: text } }],
+      messages: [
+        {
+          key: { remoteJid: chat, fromMe: opts.fromMe ?? false, id: opts.id ?? `IN${Math.random()}`, participant: '1234@lid' },
+          messageTimestamp: Math.floor(Date.now() / 1000),
+          message: { conversation: text },
+        },
+      ],
     });
   }
 }
@@ -72,8 +81,9 @@ const today = schoolNow(new Date()).date;
 const d1 = addDays(today, 1);
 const d2 = addDays(today, 2);
 
-function config(): Config {
+function config(over: Record<string, string> = {}): Config {
   return loadConfig({
+    WHATSAPP_OWN_NUMBER: 'false',
     UNTIS_SERVER: 'gym.webuntis.com',
     UNTIS_SCHOOL: 'gym-test',
     UNTIS_USERNAME: 'schueler',
@@ -82,11 +92,12 @@ function config(): Config {
     DATA_DIR: dir,
     QUIET_HOURS: '', // Test soll zu jeder Uhrzeit laufen
     COMMAND_COOLDOWN_SECONDS: '0',
+    ...over,
   });
 }
 
-function startApp(): App {
-  const cfg = config();
+function startApp(over: Record<string, string> = {}): App {
+  const cfg = config(over);
   const logger = pino({ level: 'silent' });
   app = createApp({
     config: cfg,
@@ -244,5 +255,53 @@ describe('End-to-End', () => {
     lastSocket().close(401);
     await vi.waitFor(() => expect(a.bot.state).toBe('loggedOut'));
     await vi.waitFor(() => expect(existsSync(join(dir, 'auth'))).toBe(false));
+  });
+
+  it('läuft ohne zweite SIM auf der eigenen Nummer: 🤖-Kennzeichnung, eigene Befehle, keine Schleifen', async () => {
+    const SELF = '4915199999999@s.whatsapp.net';
+    const a = startApp({ WHATSAPP_OWN_NUMBER: 'true' });
+    await a.start();
+    await vi.waitFor(() => expect(a.store.getMeta('initialized')).toBe(true));
+    lastSocket().open();
+
+    // Keine automatische Gruppenwahl auf der privaten Nummer → nichts landet in einer Gruppe
+    await new Promise((r) => setTimeout(r, 150));
+    expect(a.bot.groupJid).toBeUndefined();
+    expect(sent).toHaveLength(0);
+    lastSocket().receive('/heute'); // jemand in irgendeiner Gruppe
+    await new Promise((r) => setTimeout(r, 100));
+    expect(sent).toHaveLength(0);
+
+    // "Nachricht an mich selbst" funktioniert immer
+    lastSocket().receive('/status', SELF, { fromMe: true, id: 'PHONE-1' });
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]?.jid).toBe(SELF);
+    expect(sent[0]?.text.startsWith('🤖 *Bot-Status*')).toBe(true); // kein doppeltes 🤖
+
+    // Gruppe wählen (passiert sonst im Setup) → Begrüßung geht raus, gekennzeichnet
+    a.bot.selectGroup(GROUP, 'EF 2026/27');
+    a.bot.flushOutbox();
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent[1]).toMatchObject({ jid: GROUP });
+    expect(sent[1]?.text).toMatch(/^🤖 👋 \*Hallo EF!\* Ab jetzt läuft über diesen Account/);
+
+    // Änderung wird gemeldet
+    fake.lessons[0]!.code = 'cancelled';
+    await a.monitor.pollOnce();
+    await vi.waitFor(() => expect(sent).toHaveLength(3));
+    expect(sent[2]?.text).toMatch(/^🤖 🔔 \*Vertretungsplan EF\*/);
+
+    // Du selbst schreibst /entfall in die Gruppe → Antwort
+    lastSocket().receive('/entfall', GROUP, { fromMe: true, id: 'PHONE-2' });
+    await vi.waitFor(() => expect(sent).toHaveLength(4));
+    expect(sent[3]?.text).toContain('Entfälle EF');
+
+    // Echo der eigenen Bot-Nachricht (gleiche ID) löst nie etwas aus
+    lastSocket().receive('/heute', GROUP, { fromMe: true, id: sent[3]!.messageId! });
+    await new Promise((r) => setTimeout(r, 150));
+    expect(sent).toHaveLength(4);
+
+    // Kein "tippt …" auf der privaten Nummer (Handy-Benachrichtigungen bleiben normal)
+    expect(lastSocket().presenceCalls).toBe(0);
   });
 });

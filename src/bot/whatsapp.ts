@@ -19,7 +19,7 @@ import type { Store } from '../db/store.js';
 import { splitMessage } from '../format/messages.js';
 import { CommandCooldown, runCommand, type CommandContext, type WhatsAppState } from './commands.js';
 import { OutboxSender } from './outbox-sender.js';
-import { extractIncoming, routeCommand } from './router.js';
+import { bareJid, extractIncoming, routeCommand } from './router.js';
 
 /**
  * WhatsApp-Anbindung über Baileys (inoffizielle WhatsApp-Web-Schnittstelle).
@@ -85,6 +85,7 @@ export class WhatsAppBot {
       send: (chat, text, id) => this.sendText(chat, text, { messageId: id }),
       isConnected: () => this.state === 'open',
       defaultChat: () => this.groupJid,
+      selfChat: () => this.selfJids()[0],
       newMessageId: () => generateMessageIDV2(this.sock?.user?.id),
       gapMs: () => this.timing.gapMs(),
     });
@@ -347,7 +348,8 @@ export class WhatsAppBot {
       }
     }
     const groups = await this.listGroups();
-    if (!this.groupJid && groups.length === 1) {
+    // Auf der privaten Nummer NIE automatisch wählen (sonst landet der Plan evtl. in der Familiengruppe)
+    if (!this.groupJid && groups.length === 1 && !config.whatsapp.ownNumber) {
       this.groupJid = groups[0]!.id;
       logger.info({ group: groups[0]!.subject }, 'Einzige Gruppe des Bots wird als Klassengruppe verwendet');
     }
@@ -361,7 +363,9 @@ export class WhatsAppBot {
     } else {
       logger.warn(
         { groups: groups.map((g) => `${g.subject} = ${g.id}`) },
-        'Keine Klassengruppe festgelegt. Bot zur Gruppe hinzufügen, WHATSAPP_GROUP_INVITE setzen oder "npm run setup" ausführen.',
+        config.whatsapp.ownNumber
+          ? 'Keine Klassengruppe gewählt – bitte "sudo ./install.sh --relink" ausführen (oder WHATSAPP_GROUP_INVITE setzen).'
+          : 'Keine Klassengruppe festgelegt. Bot zur Gruppe hinzufügen, WHATSAPP_GROUP_INVITE setzen oder "npm run setup" ausführen.',
       );
     }
   }
@@ -374,6 +378,9 @@ export class WhatsAppBot {
     const incoming = extractIncoming(msg);
     if (!incoming) return;
     const command = routeCommand(incoming, {
+      ownNumber: this.opts.config.whatsapp.ownNumber,
+      selfJids: this.selfJids(),
+      isBotMessage: (id) => this.opts.store.isBotMessageId(id),
       groupJid: this.groupJid,
       allowPrivate: this.opts.config.whatsapp.allowPrivateCommands,
       adminNumbers: this.opts.config.adminNumbers,
@@ -399,33 +406,50 @@ export class WhatsAppBot {
    * Wirft bei Fehlern (Outbox wiederholt später mit derselben ID).
    */
   sendText(chat: string, text: string, options: { messageId?: string; quoted?: WAMessage }): Promise<void> {
+    const { config, store } = this.opts;
+    const prefix = config.whatsapp.messagePrefix;
+    const body = prefix && !text.startsWith(prefix.trim()) ? `${prefix}${text}` : text;
     const job = this.sendChain.then(async () => {
       const sock = this.sock;
       if (!sock || this.state !== 'open') throw new Error('WhatsApp nicht verbunden');
-      try {
-        await sock.sendPresenceUpdate('composing', chat);
-        await new Promise((r) => setTimeout(r, this.timing.typingMs()));
-      } catch {
-        /* Presence ist optional */
+      // Auf der privaten Nummer kein "tippt …": Presence-Updates können dazu führen,
+      // dass dein Handy keine Benachrichtigungen mehr anzeigt.
+      const showTyping = !config.whatsapp.ownNumber;
+      if (showTyping) {
+        try {
+          await sock.sendPresenceUpdate('composing', chat);
+          await new Promise((r) => setTimeout(r, this.timing.typingMs()));
+        } catch {
+          /* Presence ist optional */
+        }
       }
+      // ID vorab festlegen und merken: So erkennt der Bot sein eigenes Echo sicher (keine Schleifen)
+      const messageId = options.messageId ?? generateMessageIDV2(sock.user?.id);
+      store.rememberSentMessage(messageId, chat, { extendedTextMessage: { text: body } });
       const meta = isJidGroup(chat) ? await this.cachedGroup(chat) : undefined;
       const sent = await withTimeout(
         sock.sendMessage(
           chat,
-          { text },
+          { text: body },
           {
-            ...(options.messageId ? { messageId: options.messageId } : {}),
+            messageId,
             ...(options.quoted ? { quoted: options.quoted } : {}),
             ...(meta?.ephemeralDuration ? { ephemeralExpiration: meta.ephemeralDuration } : {}),
           },
         ),
         45_000,
       );
-      if (sent?.key.id && sent.message) this.opts.store.rememberSentMessage(sent.key.id, chat, sent.message);
-      await sock.sendPresenceUpdate('paused', chat).catch(() => undefined);
+      if (sent?.key.id && sent.message) store.rememberSentMessage(sent.key.id, chat, sent.message);
+      if (showTyping) await sock.sendPresenceUpdate('paused', chat).catch(() => undefined);
     });
     this.sendChain = job.catch(() => undefined);
     return job;
+  }
+
+  /** Eigene JIDs ohne Geräte-Suffix: Telefonnummer und (falls bekannt) LID. */
+  selfJids(): string[] {
+    const user = this.sock?.user as { id?: string; lid?: string } | undefined;
+    return [user?.id, user?.lid].filter((j): j is string => Boolean(j)).map(bareJid);
   }
 
   /** Für das Setup: Bot-Sitzung vollständig auf Platte schreiben lassen. */

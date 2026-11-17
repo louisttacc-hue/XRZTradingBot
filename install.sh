@@ -231,9 +231,19 @@ write_env() {
   esac
   V[UNTIS_CLASSES]="$(ask "Überwachte Klasse(n)" "$(env_get UNTIS_CLASSES || true)")"
   [[ -n "${V[UNTIS_CLASSES]}" ]] || V[UNTIS_CLASSES]="EF"
-  V[WHATSAPP_GROUP_INVITE]="$(ask "Einladungslink der Klassengruppe (optional)" "$(env_get WHATSAPP_GROUP_INVITE)")"
-  V[ADMIN_NUMBERS]="$(ask "Deine Handynummer für Fehlermeldungen, z. B. 4915112345678 (optional)" "$(env_get ADMIN_NUMBERS)")"
-  V[WHATSAPP_PAIRING_NUMBER]="$(ask "Bot-Nummer für Kopplungscode statt QR (optional, leer = QR-Code)" "$(env_get WHATSAPP_PAIRING_NUMBER)")"
+  echo "  WhatsApp:   1) Eigene Nummer – der Bot läuft als verknüpftes Gerät auf deinem WhatsApp (kostenlos, keine 2. SIM)"
+  echo "              2) Separate Bot-Nummer (zweite SIM/Festnetz-WhatsApp-Business)"
+  local def_wa=1
+  [[ "$(env_get WHATSAPP_OWN_NUMBER)" == "false" ]] && def_wa=2
+  if [[ "$(ask "Auswahl" "$def_wa")" == "2" ]]; then
+    V[WHATSAPP_OWN_NUMBER]=false
+    V[ADMIN_NUMBERS]="$(ask "Deine Handynummer für Fehlermeldungen, z. B. 4915112345678 (optional)" "$(env_get ADMIN_NUMBERS)")"
+  else
+    V[WHATSAPP_OWN_NUMBER]=true
+    V[ADMIN_NUMBERS]=""   # Fehlermeldungen landen in "Nachricht an mich selbst"
+  fi
+  V[WHATSAPP_GROUP_INVITE]="$(ask "Einladungslink der Klassengruppe (optional, sonst Auswahl aus deinen Gruppen)" "$(env_get WHATSAPP_GROUP_INVITE)")"
+  V[WHATSAPP_PAIRING_NUMBER]="$(ask "Nummer für Kopplungscode statt QR, z. B. 4915112345678 (optional, leer = QR-Code)" "$(env_get WHATSAPP_PAIRING_NUMBER)")"
 
   # .env aus der Vorlage erzeugen; vorhandene Zusatz-Einstellungen bleiben erhalten
   local tmp key line
@@ -273,9 +283,13 @@ done
 # ── 6. WhatsApp koppeln ─────────────────────────────────────────────────────
 
 if [[ ! -f "$INSTALL_DIR/data/auth/creds.json" || $RELINK -eq 1 ]]; then
-  step "WhatsApp mit der Bot-Nummer verknüpfen"
-  echo "  ⚠ Nutze eine EIGENE Nummer für den Bot (z. B. Prepaid-SIM), nicht deine private Nummer."
-  echo "    Die Nummer muss Mitglied der Klassengruppe sein oder per Einladungslink beitreten."
+  step "WhatsApp verknüpfen (QR-Code mit dem Handy scannen)"
+  if [[ "$(env_get WHATSAPP_OWN_NUMBER)" == "false" ]]; then
+    echo "  Mit dem Handy der BOT-Nummer scannen. Die Nummer muss in der Klassengruppe sein (oder Einladungslink)."
+  else
+    echo "  Mit DEINEM Handy scannen: WhatsApp → Einstellungen → Verknüpfte Geräte → Gerät hinzufügen."
+    echo "  Der Bot läuft dann wie WhatsApp Web auf deinem Konto; seine Nachrichten beginnen mit 🤖."
+  fi
   if [[ $INTERACTIVE -eq 1 ]]; then
     if service_active; then systemctl stop "$APP"; fi
     run_as node dist/setup.js || warn "WhatsApp-Einrichtung nicht abgeschlossen – später: sudo ./install.sh --relink"

@@ -129,6 +129,14 @@ describe('Monitor', () => {
     expect(pending().filter((x) => x.chat === '4915100000@s.whatsapp.net').map((x) => x.text).at(-1)).toContain('wieder');
   });
 
+  it('schickt Fehlermeldungen auf der eigenen Nummer ohne Admin-Angabe an "Nachricht an mich selbst"', async () => {
+    const m = monitor({ SEND_WELCOME_MESSAGE: 'false', ADMIN_NUMBERS: '', WHATSAPP_OWN_NUMBER: 'true' });
+    await m.pollOnce();
+    failWith = new UntisError('auth', 'Untis-Login fehlgeschlagen: Benutzername oder Passwort falsch.');
+    for (let i = 0; i < 2; i++) await m.pollOnce().catch(() => undefined);
+    expect(pending().map((x) => x.chat)).toEqual(['self']);
+  });
+
   it('ignoriert einen plötzlich leeren Abruf zunächst (Schutz vor Untis-Störungen)', async () => {
     const m = monitor({ SEND_WELCOME_MESSAGE: 'false' });
     await m.pollOnce();

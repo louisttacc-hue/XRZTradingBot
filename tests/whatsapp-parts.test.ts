@@ -11,10 +11,10 @@ import { Store } from '../src/db/store.js';
 const GROUP = '120363000000000000@g.us';
 const NOW = 1_800_000_000_000;
 
-function waMessage(over: { chat?: string; text?: string; fromMe?: boolean; ts?: number; alt?: string; ephemeral?: boolean }) {
+function waMessage(over: { chat?: string; text?: string; fromMe?: boolean; ts?: number; alt?: string; ephemeral?: boolean; id?: string }) {
   const content = { extendedTextMessage: { text: over.text ?? '/heute' } };
   return {
-    key: { remoteJid: over.chat ?? GROUP, fromMe: over.fromMe ?? false, id: 'X1', participant: '123@lid', remoteJidAlt: over.alt },
+    key: { remoteJid: over.chat ?? GROUP, fromMe: over.fromMe ?? false, id: over.id ?? 'X1', participant: '123@lid', remoteJidAlt: over.alt },
     messageTimestamp: over.ts ?? NOW / 1000,
     message: over.ephemeral ? { ephemeralMessage: { message: content } } : content,
   };
@@ -27,6 +27,9 @@ function rctx(over: Partial<RouteContext> = {}): RouteContext {
     adminNumbers: ['4915100000'],
     nowMs: NOW,
     cooldown: new CommandCooldown({ perCommandMs: 30_000, maxPerMinute: 20 }),
+    ownNumber: false,
+    selfJids: [],
+    isBotMessage: () => false,
     ...over,
   };
 }
@@ -65,6 +68,33 @@ describe('routeCommand', () => {
     expect(route(waMessage({ chat: '4915100000@s.whatsapp.net' }))).toBe('heute');
     expect(route(waMessage({ chat: '555@lid', alt: '4915100000@s.whatsapp.net' }))).toBe('heute');
   });
+  describe('auf der eigenen Nummer', () => {
+    const own = (over: Partial<RouteContext> = {}) =>
+      rctx({ ownNumber: true, selfJids: ['4915111111111@s.whatsapp.net', '98765@lid'], isBotMessage: (id) => id === 'BOT1', ...over });
+
+    it('beantwortet Befehle, die du selbst vom Handy schreibst', () => {
+      expect(route(waMessage({ fromMe: true, id: 'PHONE1' }), own())).toBe('heute');
+    });
+    it('reagiert nie auf eigene Bot-Nachrichten (keine Endlosschleife)', () => {
+      expect(route(waMessage({ fromMe: true, id: 'BOT1' }), own())).toBeNull();
+    });
+    it('erlaubt Befehle im Chat "Nachricht an mich selbst" (Telefonnummer oder LID)', () => {
+      expect(route(waMessage({ chat: '4915111111111@s.whatsapp.net', fromMe: true, id: 'P2' }), own())).toBe('heute');
+      expect(route(waMessage({ chat: '98765@lid', fromMe: true, id: 'P3' }), own())).toBe('heute');
+    });
+    it('antwortet ohne gewählte Klassengruppe in keiner Gruppe (nicht versehentlich in der Familiengruppe)', () => {
+      expect(route(waMessage({}), own({ groupJid: undefined }))).toBeNull();
+      expect(route(waMessage({ chat: '4915111111111@s.whatsapp.net', fromMe: true, id: 'P4' }), own({ groupJid: undefined }))).toBe('heute');
+    });
+    it('ignoriert eigene Nachrichten in fremden Privatchats', () => {
+      expect(route(waMessage({ chat: '4917600000@s.whatsapp.net', fromMe: true, id: 'P5' }), own())).toBeNull();
+    });
+  });
+
+  it('ignoriert im Modus "eigene Bot-Nummer" weiterhin eigene Nachrichten', () => {
+    expect(route(waMessage({ fromMe: true, id: 'PHONE1' }))).toBeNull();
+  });
+
   it('drosselt wiederholte Befehle', () => {
     const c = rctx();
     expect(route(waMessage({}), c)).toBe('heute');
@@ -164,6 +194,27 @@ describe('OutboxSender', () => {
     await s.flush();
     expect(sent).toEqual(['4915100000@s.whatsapp.net:an Admin']);
     expect(store.dueMessages(Date.now()).map((m) => m.text)).toEqual(['an Gruppe']);
+  });
+
+  it('schickt Nachrichten an "self" in den eigenen Chat, sobald dieser bekannt ist', async () => {
+    store.enqueue({ text: 'Fehler!', notBefore: 0, expiresAt: Date.now() + 60_000, chat: 'self' });
+    const sent: string[] = [];
+    let self: string | undefined;
+    const s = new OutboxSender({
+      store,
+      logger: pino({ level: 'silent' }),
+      send: async (chat, text) => void sent.push(`${chat}:${text}`),
+      isConnected: () => true,
+      defaultChat: () => GROUP,
+      selfChat: () => self,
+      newMessageId: () => 'S1',
+      gapMs: () => 0,
+    });
+    await s.flush();
+    expect(sent).toEqual([]);
+    self = '4915111111111@s.whatsapp.net';
+    await s.flush();
+    expect(sent).toEqual(['4915111111111@s.whatsapp.net:Fehler!']);
   });
 
   it('läuft nie doppelt parallel', async () => {

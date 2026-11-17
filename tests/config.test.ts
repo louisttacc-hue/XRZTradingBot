@@ -18,6 +18,16 @@ describe('loadConfig', () => {
     expect(c.quietHours).toEqual({ start: 2200, end: 600 });
   });
 
+  it('läuft standardmäßig auf der eigenen Nummer und kennzeichnet Bot-Nachrichten', () => {
+    const own = loadConfig(base);
+    expect(own.whatsapp.ownNumber).toBe(true);
+    expect(own.whatsapp.messagePrefix).toBe('🤖 ');
+    const dedicated = loadConfig({ ...base, WHATSAPP_OWN_NUMBER: 'false' });
+    expect(dedicated.whatsapp.ownNumber).toBe(false);
+    expect(dedicated.whatsapp.messagePrefix).toBe('');
+    expect(loadConfig({ ...base, BOT_MESSAGE_PREFIX: '[Bot] ' }).whatsapp.messagePrefix).toBe('[Bot] ');
+  });
+
   it('akzeptiert eine komplette WebUntis-URL als Server', () => {
     expect(loadConfig({ ...base, UNTIS_SERVER: 'https://nessa.webuntis.com/WebUntis/?school=x#/basic/login' }).untis.server).toBe('nessa.webuntis.com');
   });
